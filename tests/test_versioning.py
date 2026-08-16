@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class ReleaseVersionTestCase(unittest.TestCase):
     def test_runtime_release_matches_database_schema(self) -> None:
-        self.assertEqual(RELEASE.version, "1.1.0")
-        self.assertEqual(RELEASE.sequence, 2)
+        self.assertEqual(RELEASE.version, "1.2.0")
+        self.assertEqual(RELEASE.sequence, 3)
         self.assertEqual(RELEASE.schema_target, SCHEMA_VERSION)
         self.assertEqual(RELEASE.pack_id, "TrigoDeMinas.TrigoPDV")
 
@@ -43,11 +43,15 @@ class ReleaseVersionTestCase(unittest.TestCase):
         self.assertIn("--require-hashes", build)
         self.assertIn("requirements.lock", build)
         self.assertIn("TrigoPDV.spec", build)
+        self.assertIn(".build-venv\\Scripts\\python.exe tools\\release_gate.py", build)
+        self.assertNotIn("%BUILD_PY% tools\\release_gate.py", build)
         self.assertNotIn("del /q TrigoPDV.spec", build)
         self.assertNotIn("pip install --upgrade pip", build)
         installer = (ROOT / "TrigoPDV_Instalacao_PenDrive" / "instalador" / "Instalar_TrigoPDV.cmd").read_text(encoding="utf-8")
         self.assertIn("ProductVersion", installer)
-        self.assertIn("1.1.0", installer)
+        self.assertIn("1.2.0", installer)
+        self.assertIn("..\\TrigoPDV-Setup.exe", installer)
+        self.assertNotIn("robocopy", installer.casefold())
 
     def test_windows_build_uses_a_supported_python_with_official_binaries(self) -> None:
         build = (ROOT / "build_release.bat").read_text(encoding="utf-8")
@@ -92,6 +96,26 @@ class ReleaseVersionTestCase(unittest.TestCase):
         )
         self.assertNotEqual(production.returncode, 0)
         self.assertIn("GATE BLOQUEADO", production.stderr)
+
+    def test_enabled_update_build_requires_a_self_signed_public_root(self) -> None:
+        from tools.release_gate import GateFailure, trusted_root_for_build
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config.ini.example").write_text(
+                "[updates]\nenabled = true\nchannel = pilot\n"
+                "base_url = https://updates.example/\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(GateFailure, "raiz TUF"):
+                trusted_root_for_build(root)
+
+            trusted = root / "updates" / "trusted"
+            trusted.mkdir(parents=True)
+            (trusted / "root.json").write_bytes(
+                (ROOT / "updates" / "trusted" / "root.json").read_bytes()
+            )
+            self.assertEqual(trusted_root_for_build(root), trusted / "root.json")
 
 
 if __name__ == "__main__":

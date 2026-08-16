@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Callable
 
 from config.version import RELEASE
 from db.database import Database
 from .health import run_health_check
-from .models import UpdateOffer, UpdatePhase, UpdatePolicy, cohort_eligible
+from .models import TrustedArtifact, UpdateOffer, UpdatePhase, UpdatePolicy, cohort_eligible
 from .state import UpdateState, UpdateStateStore
 
 
@@ -51,6 +54,107 @@ class UpdateCoordinator:
             # O log é diagnóstico; nunca substitui a decisão segura do estado.
             pass
 
+    @staticmethod
+    def _serialize_offer(offer: UpdateOffer) -> str:
+        values = {
+            "version": offer.version,
+            "sequence": offer.sequence,
+            "schema_target": offer.schema_target,
+            "pack_id": offer.pack_id,
+            "channel": offer.channel,
+            "rollout_percent": offer.rollout_percent,
+            "rollout_seed": offer.rollout_seed,
+            "manifest_target": offer.manifest_target,
+            "mandatory": offer.mandatory,
+            "artifacts": [
+                {"target": item.target, "length": item.length, "sha256": item.sha256}
+                for item in offer.artifacts
+            ],
+        }
+        payload = json.dumps(values, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if len(payload) > 65536:
+            raise UpdateCoordinatorError("A oferta autenticada excede o limite permitido.")
+        return payload
+
+    @staticmethod
+    def _deserialize_offer(payload: str) -> UpdateOffer:
+        try:
+            if not payload or len(payload) > 65536:
+                raise ValueError("missing payload")
+            values = json.loads(payload)
+            allowed = {
+                "version", "sequence", "schema_target", "pack_id", "channel",
+                "rollout_percent", "rollout_seed", "manifest_target", "mandatory", "artifacts",
+            }
+            if not isinstance(values, dict) or set(values) != allowed:
+                raise ValueError("invalid fields")
+            artifacts = tuple(
+                TrustedArtifact(
+                    target=str(item["target"]),
+                    length=int(item["length"]),
+                    sha256=str(item["sha256"]).lower(),
+                )
+                for item in values["artifacts"]
+            )
+            offer = UpdateOffer(
+                version=str(values["version"]),
+                sequence=int(values["sequence"]),
+                schema_target=int(values["schema_target"]),
+                pack_id=str(values["pack_id"]),
+                channel=str(values["channel"]),
+                rollout_percent=int(values["rollout_percent"]),
+                rollout_seed=str(values["rollout_seed"]),
+                manifest_target=str(values["manifest_target"]),
+                mandatory=bool(values["mandatory"]),
+                artifacts=artifacts,
+            )
+            if not artifacts:
+                raise ValueError("no artifacts")
+            for artifact in artifacts:
+                artifact.validate()
+            return offer
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise UpdateCoordinatorError("A oferta baixada não pôde ser reconstruída com segurança.") from exc
+
+    @staticmethod
+    def _bundle_matches_offer(directory: Path, offer: UpdateOffer) -> bool:
+        try:
+            expected = {PurePosixPath(item.target).name: item for item in offer.artifacts}
+            actual = {path.name: path for path in directory.iterdir() if path.is_file()}
+            if len(expected) != len(offer.artifacts) or set(actual) != set(expected):
+                return False
+            for name, artifact in expected.items():
+                path = actual[name]
+                if path.stat().st_size != artifact.length:
+                    return False
+                digest = hashlib.sha256()
+                with path.open("rb") as handle:
+                    while chunk := handle.read(1024 * 1024):
+                        digest.update(chunk)
+                if digest.hexdigest() != artifact.sha256:
+                    return False
+            return True
+        except OSError:
+            return False
+
+    def restore_downloaded_offer(self) -> UpdateOffer:
+        state = self.state_store.load()
+        if state.phase != UpdatePhase.DOWNLOADED:
+            raise UpdateCoordinatorError("Não existe atualização baixada pronta para instalar.")
+        offer = self._deserialize_offer(state.offer_json)
+        offer.validate(self.policy, current_sequence=state.current_sequence)
+        bundle = Path(state.bundle_directory)
+        if (
+            offer.sequence != state.target_sequence
+            or offer.version != state.target_version
+            or offer.schema_target != state.target_schema
+            or not bundle.is_dir()
+            or not self._bundle_matches_offer(bundle, offer)
+        ):
+            self.state_store.save(replace(state, phase=UpdatePhase.FAILED, error_code="BUNDLE_INVALID"))
+            raise UpdateCoordinatorError("O pacote baixado não corresponde à oferta autenticada.")
+        return offer
+
     def has_pending_update(self) -> bool:
         return self.state_store.load().phase in {
             UpdatePhase.DOWNLOADING, UpdatePhase.DOWNLOADED, UpdatePhase.PREPARING,
@@ -66,6 +170,23 @@ class UpdateCoordinator:
             self._log("check_started", channel=self.policy.channel, phase="AVAILABLE")
             offer = self.repository.check_offer(f"channels/{self.policy.channel}/manifest.json")
             current = self.state_store.load()
+            if offer.sequence == current.current_sequence:
+                # The repository normally keeps publishing the newest release.
+                # Seeing our exact signed identity means this installation is
+                # current, not that the network check failed. A reused sequence
+                # with another version is still rejected as equivocation.
+                offer.validate(self.policy, current_sequence=current.current_sequence - 1)
+                if offer.version != current.current_version:
+                    raise UpdateCoordinatorError(
+                        "A sequência publicada foi reutilizada por outra versão."
+                    )
+                self._log(
+                    "check_finished",
+                    outcome="CURRENT",
+                    version=offer.version,
+                    sequence=offer.sequence,
+                )
+                return None
             offer.validate(self.policy, current_sequence=current.current_sequence)
             if not cohort_eligible(installation_id, offer.rollout_seed, offer.rollout_percent):
                 return None
@@ -91,7 +212,7 @@ class UpdateCoordinator:
             self.state_store.save(replace(
                 current, phase=UpdatePhase.DOWNLOADED, target_version=offer.version,
                 target_sequence=offer.sequence, target_schema=offer.schema_target,
-                bundle_directory=str(bundle), error_code="",
+                bundle_directory=str(bundle), offer_json=self._serialize_offer(offer), error_code="",
             ))
             self._log("download_finished", outcome="OK", version=offer.version, sequence=offer.sequence)
             return bundle
@@ -109,6 +230,8 @@ class UpdateCoordinator:
     ) -> None:
         if not safe_to_apply():
             raise UpdateCoordinatorError("Feche o caixa antes de aplicar a atualização.")
+        if not self._bundle_matches_offer(Path(bundle_directory), offer):
+            raise UpdateCoordinatorError("O pacote baixado não corresponde à oferta autenticada.")
         current = self.state_store.load()
         self.state_store.save(replace(
             current, phase=UpdatePhase.PREPARING, target_version=offer.version,

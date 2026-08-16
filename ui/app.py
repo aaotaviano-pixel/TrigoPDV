@@ -50,6 +50,18 @@ class PDVApplication(tk.Tk):
         configure_style(self)
         self._bind_shortcuts()
         self.show_initial_route()
+        self._update_start_after_id = self.after(2000, self._start_update_monitor)
+
+    def _start_update_monitor(self) -> None:
+        self._update_start_after_id = None
+        start = getattr(self.controller, "start_update_monitor", None)
+        if callable(start):
+            try:
+                start()
+            except Exception:
+                # Atualização é auxiliar e offline-first: venda e login seguem
+                # disponíveis quando a internet ou o repositório falham.
+                pass
 
     def _bind_shortcuts(self) -> None:
         # ``bind_all`` keeps barcode/keyboard operation reliable regardless of
@@ -324,6 +336,13 @@ class PDVApplication(tk.Tk):
         self.destroy()
 
     def destroy(self) -> None:
+        pending = getattr(self, "_update_start_after_id", None)
+        if pending:
+            try:
+                self.after_cancel(pending)
+            except tk.TclError:
+                pass
+            self._update_start_after_id = None
         if not getattr(self, "_controller_shutdown", False):
             self._controller_shutdown = True
             shutdown = getattr(self.controller, "shutdown", None)

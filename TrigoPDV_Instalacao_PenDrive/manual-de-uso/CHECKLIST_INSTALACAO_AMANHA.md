@@ -3,7 +3,7 @@
 ## Levar
 
 - computador Windows 10 ou 11, com usuário que possa instalar programas;
-- pen drive com a pasta completa do TrigoPDV 1.1.0;
+- pen drive com a pasta completa do TrigoPDV 1.2.0;
 - teclado, mouse e leitor de código de barras USB configurado como teclado;
 - impressora térmica já instalada no Windows, papel e cabo USB/rede;
 - valores e contagem reais do estoque para revisar preços e saldos;
@@ -24,6 +24,10 @@ banco é local e é criado automaticamente em `%LOCALAPPDATA%\TrigoPDV`.
    no Windows e faça uma impressão física de teste.
 6. Revise os preços do catálogo e faça inventário antes de ativar bloqueio de
    estoque. O catálogo começa com saldo físico zero.
+7. Em Configurações, confirme que `Atualização segura do sistema` mostra o
+   canal piloto configurado. A verificação não deve impedir vendas sem internet.
+8. Feche o caixa de treinamento antes de testar `Instalar agora`; nunca force
+   uma atualização durante uma venda.
 
 ## Teste antes da primeira venda real
 

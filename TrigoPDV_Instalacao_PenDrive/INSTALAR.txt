@@ -1,8 +1,8 @@
 TRIGOPDV - PACOTE PARA PEN DRIVE
 ===============================
 
-1. Copie esta pasta inteira para o pen drive. Nao mova nem apague a pasta
-   instalador\app, pois ela contem o aplicativo standalone.
+1. Copie esta pasta inteira para o pen drive. Nao mova nem renomeie o arquivo
+   TrigoPDV-Setup.exe; ele cria a estrutura exigida pelas atualizacoes online.
 2. Na maquina do caixa, abra TrigoPDV-Setup.exe. Se o instalador grafico nao
    puder ser usado, execute instalador\Instalar_TrigoPDV.cmd como alternativa.
 3. Aguarde a criacao do atalho "TrigoPDV" na Area de Trabalho e no Menu Iniciar.
@@ -15,10 +15,10 @@ TRIGOPDV - PACOTE PARA PEN DRIVE
    fila instalada no Windows e o teste físico da térmica.
 
 O instalador nao exige Python nem conexao com a internet. A internet e usada
-somente para consultar produtos novos pelo GTIN; produtos locais continuam
-funcionando sem rede.
+para consultar produtos novos pelo GTIN e verificar atualizacoes autenticadas;
+produtos locais e vendas continuam funcionando sem rede.
 
-Este pacote e a versao 1.1.0. O instalador ainda nao possui assinatura digital
+Este pacote e a versao 1.2.0. O instalador ainda nao possui assinatura digital
 de empresa. Use somente a copia recebida no pen drive confiavel e confira o
 arquivo MANIFESTO-SHA256.txt antes de instalar. Nao baixe copias de terceiros.
 

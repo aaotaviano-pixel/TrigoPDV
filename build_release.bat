@@ -23,24 +23,28 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/4] Validando metadados da versao...
-%BUILD_PY% tools\release_gate.py
+echo [1/5] Validando metadados gerados da versao...
+%BUILD_PY% tools\render_release_metadata.py --check
 if errorlevel 1 goto :error
 
-echo [2/4] Criando ambiente de montagem isolado...
+echo [2/5] Criando ambiente de montagem isolado...
 if exist .build-venv rmdir /s /q .build-venv
 %BUILD_PY% -m venv .build-venv
 if errorlevel 1 goto :error
 .build-venv\Scripts\python.exe -m pip install --require-hashes -r requirements.lock
 if errorlevel 1 goto :error
 
-echo [3/4] Gerando TrigoPDV.exe standalone...
+echo [3/5] Executando o gate com dependencias criptograficas travadas...
+.build-venv\Scripts\python.exe tools\release_gate.py
+if errorlevel 1 goto :error
+
+echo [4/5] Gerando TrigoPDV.exe standalone...
 if exist build rmdir /s /q build
 if exist dist\TrigoPDV rmdir /s /q dist\TrigoPDV
 .build-venv\Scripts\python.exe -m PyInstaller --noconfirm --clean TrigoPDV.spec
 if errorlevel 1 goto :error
 
-echo [4/4] Executavel pronto em dist\TrigoPDV\TrigoPDV.exe
+echo [5/5] Executavel pronto em dist\TrigoPDV\TrigoPDV.exe
 echo Para gerar o instalador, execute installer\build_installer.bat.
 exit /b 0
 

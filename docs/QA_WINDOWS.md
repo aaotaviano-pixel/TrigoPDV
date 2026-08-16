@@ -1,4 +1,4 @@
-# QA manual Windows — TrigoPDV 1.1.0
+# QA manual Windows — TrigoPDV 1.2.0
 
 Registrar máquina, versão do Windows, resolução/DPI, impressora/driver, largura
 do papel, leitor e resultado de cada cenário sem copiar dados pessoais.

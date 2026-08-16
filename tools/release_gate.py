@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from configparser import ConfigParser
 import hashlib
 import json
 import os
@@ -25,6 +26,32 @@ class GateFailure(RuntimeError):
     pass
 
 
+def trusted_root_for_build(project_root: str | Path) -> Path | None:
+    """Retorna a âncora pública validada ou falha se updates estiverem ativos."""
+
+    root = Path(project_root).resolve()
+    parser = ConfigParser(interpolation=None)
+    try:
+        if not parser.read(root / "config.ini.example", encoding="utf-8"):
+            raise GateFailure("A configuração-base da montagem está ausente.")
+        if not parser.getboolean("updates", "enabled", fallback=False):
+            return None
+        path = root / "updates" / "trusted" / "root.json"
+        if not path.is_file():
+            raise GateFailure("A raiz TUF pública é obrigatória quando updates estão habilitados.")
+        from tuf.api.metadata import Metadata, Root
+
+        metadata = Metadata.from_bytes(path.read_bytes())
+        if not isinstance(metadata.signed, Root) or metadata.signed.is_expired():
+            raise ValueError("invalid root")
+        metadata.verify_delegate("root", metadata)
+        return path
+    except GateFailure:
+        raise
+    except Exception as exc:
+        raise GateFailure("A raiz TUF pública da montagem é inválida.") from exc
+
+
 def _normalized_text_sha256(path: Path) -> str:
     text = path.read_text(encoding="utf-8-sig")
     canonical = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
@@ -32,6 +59,7 @@ def _normalized_text_sha256(path: Path) -> str:
 
 
 def _source_gate() -> None:
+    trusted_root_for_build(ROOT)
     if RELEASE.schema_target != SCHEMA_VERSION:
         raise GateFailure("Versão e schema não coincidem.")
     result = subprocess.run(

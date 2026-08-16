@@ -25,6 +25,8 @@ class UpdateState:
     target_schema: int = 0
     bundle_directory: str = ""
     database_backup: str = ""
+    offer_json: str = ""
+    last_check_at: str = ""
     attempts: int = 0
     error_code: str = ""
     updated_at: str = ""
@@ -36,6 +38,19 @@ class UpdateState:
             raise ValueError("unknown fields")
         values = dict(values)
         values["phase"] = UpdatePhase(values.get("phase", UpdatePhase.IDLE))
+        for name, limit in {
+            "current_version": 64,
+            "target_version": 64,
+            "bundle_directory": 4096,
+            "database_backup": 4096,
+            "offer_json": 65536,
+            "last_check_at": 64,
+            "error_code": 128,
+            "updated_at": 64,
+        }.items():
+            value = values.get(name, "")
+            if not isinstance(value, str) or len(value) > limit:
+                raise ValueError(f"invalid {name}")
         return cls(**values)
 
     def as_dict(self) -> dict:

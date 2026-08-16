@@ -1,0 +1,119 @@
+name: Publish authenticated update
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel
+        required: true
+        type: choice
+        default: pilot
+        options:
+          - internal
+          - pilot
+          - stable
+      rollout_percent:
+        description: Eligible installation percentage
+        required: true
+        default: "100"
+      mandatory:
+        description: Mark the signed offer as mandatory
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trigopdv-update-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout protected source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes -r requirements.lock
+
+      - name: Test and source gate
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -q
+          python -m compileall -q config db integrations printing runtime services ui updates tests tools main.py init_db.py desktop_controller.py
+          python tools/release_gate.py
+
+      - name: Install exact Velopack CLI
+        shell: pwsh
+        run: dotnet tool install --global vpk --version 1.2.0
+
+      - name: Build the onedir application
+        shell: cmd
+        run: build_release.bat
+
+      - name: Build and verify TUF repository
+        shell: pwsh
+        env:
+          TRIGOPDV_TUF_TARGETS_KEY: ${{ secrets.TRIGOPDV_TUF_TARGETS_KEY }}
+          TRIGOPDV_TUF_SNAPSHOT_KEY: ${{ secrets.TRIGOPDV_TUF_SNAPSHOT_KEY }}
+          TRIGOPDV_TUF_TIMESTAMP_KEY: ${{ secrets.TRIGOPDV_TUF_TIMESTAMP_KEY }}
+          UPDATE_CHANNEL: ${{ inputs.channel }}
+          UPDATE_ROLLOUT: ${{ inputs.rollout_percent }}
+          UPDATE_MANDATORY: ${{ inputs.mandatory }}
+        run: |
+          $arguments = @(
+            "tools/build_online_release.py",
+            "--channel", $env:UPDATE_CHANNEL,
+            "--rollout", $env:UPDATE_ROLLOUT,
+            "--seed", "${{ github.sha }}-${{ github.run_number }}"
+          )
+          if ($env:UPDATE_MANDATORY -eq "true") { $arguments += "--mandatory" }
+          python @arguments
+
+      - name: Upload verified static repository
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: trigopdv-update-site
+          path: _site
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download verified repository
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: trigopdv-update-site
+          path: _site
+
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Package Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: _site
+
+      - name: Deploy atomically
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
