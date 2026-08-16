@@ -39,8 +39,9 @@ __pycache__/
 # Build e artefatos executáveis
 build/
 dist/
-_site/
-release/velopack/
+_site*/
+_usb_stage*/
+release/velopack*/
 installer/Output/
 *.zip
 *.exe
