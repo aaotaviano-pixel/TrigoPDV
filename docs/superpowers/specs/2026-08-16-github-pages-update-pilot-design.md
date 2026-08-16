@@ -78,6 +78,7 @@ Versão, sequência, schema e pack ID vêm de `release/version.toml`.
     do deploy, o job relê o último ledger concluído e o Pages autenticado. Uma
     reexecução obsoleta é recusada; se o Pages já contém exatamente o candidato,
     o job apenas conclui o ledger, sem reconstruir nem republicar arquivos.
+    Site e candidato ficam retidos por 30 dias para essa recuperação.
 
 Uma republicação na mesma sequência pode apenas ampliar uma política já
 assinada e exige os mesmos nomes, tamanhos e SHA-256 dos artefatos. Bytes novos
