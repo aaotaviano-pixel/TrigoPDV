@@ -1,0 +1,47 @@
+; Copie para config.ini ou deixe o init_db.py criar a cópia inicial.
+[paths]
+database_path = data/trigo_de_minas.sqlite3
+backup_path = backups
+
+[store]
+name = Padaria Trigo de Minas
+document =
+receipt_header = PADARIA TRIGO DE MINAS
+
+[pix]
+key =
+receiver_name = PADARIA TRIGO DE MINAS
+city = SAO PAULO
+
+[printing]
+enabled = false
+mode = DESATIVADA
+driver = win32raw
+printer_name =
+; Perfil térmico: 58 mm usa 32 colunas; 80 mm usa 42 colunas.
+paper_width = 80
+; Use uri somente para um endpoint IPP direto; a seleção normal usa o Windows.
+uri =
+host =
+printer_port = 9100
+queue_dir = data/print_queue
+; Envie o comando de corte apenas para impressoras térmicas que o suportam.
+cut_paper = true
+
+[integrations]
+open_food_facts_timeout = 3
+; Preencha somente no config.ini local; o instalador não inclui credenciais.
+cosmos_api_token =
+cosmos_user_agent =
+
+[cash]
+; Padrão seguro: o operador informa somente o dinheiro contado.
+show_expected_to_operator = false
+
+[updates]
+; Permanece desligado até o responsável configurar o repositório HTTPS assinado.
+enabled = false
+channel = stable
+base_url =
+check_interval_hours = 6
+state_path = data/updates/update-state.json

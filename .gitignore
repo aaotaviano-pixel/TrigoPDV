@@ -1,0 +1,66 @@
+# Credenciais e configuração local
+config.ini
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.pem
+*.cer
+*.crt
+secrets/
+private/
+
+# Bancos, dados operacionais, filas, backups e logs
+data/
+backups/
+work/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.log
+!TrigoPDV_Instalacao_PenDrive/dados-iniciais/catalogo-produtos.sqlite3
+
+# Ambientes e caches Python
+.venv/
+.build-venv/
+.lock-venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build e artefatos executáveis
+build/
+dist/
+installer/Output/
+*.zip
+*.exe
+*.msi
+*.nupkg
+
+# Pacote gerado para instalação
+TrigoPDV_Instalacao_PenDrive/instalador/app/
+TrigoPDV_Instalacao_PenDrive/MANIFESTO-SHA256.txt
+
+# Relatórios internos de agentes e instruções específicas da máquina
+.superpowers/
+AGENTS.md
+CLAUDE.md
+
+# Documentos binários com metadados locais
+*.docx
+*.pdf
+
+# Editores e sistema operacional
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,40 @@
+TRIGOPDV - PACOTE PARA PEN DRIVE
+===============================
+
+1. Copie esta pasta inteira para o pen drive. Nao mova nem apague a pasta
+   instalador\app, pois ela contem o aplicativo standalone.
+2. Na maquina do caixa, abra TrigoPDV-Setup.exe. Se o instalador grafico nao
+   puder ser usado, execute instalador\Instalar_TrigoPDV.cmd como alternativa.
+3. Aguarde a criacao do atalho "TrigoPDV" na Area de Trabalho e no Menu Iniciar.
+4. No primeiro inicio, o administrador cria a propria conta e senha na tela de
+   configuracao inicial. Nao existe senha padrao nem credencial no pen drive.
+5. Antes de vender de verdade, siga config-impressora\LEIA-ME.md e depois o
+   checklist em manual-de-uso\CHECKLIST_INSTALACAO_AMANHA.md e o manual em
+   manual-de-uso\Manual_de_Uso_TrigoPDV.docx.
+   Impressoras virtuais IPP servem apenas para teste; a produção deve usar a
+   fila instalada no Windows e o teste físico da térmica.
+
+O instalador nao exige Python nem conexao com a internet. A internet e usada
+somente para consultar produtos novos pelo GTIN; produtos locais continuam
+funcionando sem rede.
+
+Este pacote e a versao 1.1.0. O instalador ainda nao possui assinatura digital
+de empresa. Use somente a copia recebida no pen drive confiavel e confira o
+arquivo MANIFESTO-SHA256.txt antes de instalar. Nao baixe copias de terceiros.
+
+Dados do sistema: %LOCALAPPDATA%\TrigoPDV
+Essa pasta guarda config.ini, banco, backups e fila de impressao. Nao a apague
+sem antes guardar um backup gerado pelo sistema.
+
+O catalogo fornecido contem 192 produtos ja cadastrados e nenhuma tabela de
+usuarios, vendas, caixas, movimentacoes ou historico comercial. No primeiro
+inicio, o aplicativo cria um banco operacional novo e exclusivo desta maquina,
+com identificador proprio. Os precos foram definidos por referencia
+de mercado e devem ser revisados antes da abertura. Todos começam com saldo
+fisico zero e sem bloqueio de estoque, pois a quantidade da loja nao foi
+informada. Depois do inventario, informe o saldo real e ative o controle de
+estoque no painel quando fizer sentido.
+
+O banco local da operacao fica em %LOCALAPPDATA%\TrigoPDV. O pen drive deve ser
+usado apenas para instalar e transportar o pacote; nao venda diretamente a
+partir dele e nao apague a pasta de dados sem backup.

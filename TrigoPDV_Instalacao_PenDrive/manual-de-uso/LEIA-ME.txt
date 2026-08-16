@@ -1,0 +1,10 @@
+Abra Manual_de_Uso_TrigoPDV.docx para o guia completo de operação.
+
+Ele cobre a abertura e o fechamento do unico caixa, venda por leitor, Ctrl+F11
+para consulta de GTIN, cadastro de itens proprios, PIX, cartao, impressao,
+detecção automática/seleção/teste da impressora em Administração > Impressora,
+recuperacao de senha, backup e o roteiro de testes em producao.
+
+O pacote atualizado contém 192 produtos iniciais sem histórico operacional.
+Revise os precos e o saldo fisico antes de vender. A confirmacao fisica da
+impressora termica deve ser feita na maquina da padaria.

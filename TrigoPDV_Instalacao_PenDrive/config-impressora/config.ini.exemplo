@@ -1,0 +1,10 @@
+; Trecho de exemplo. Edite o config.ini criado em %LOCALAPPDATA%\TrigoPDV.
+[printing]
+enabled = false
+driver = win32raw
+printer_name =
+uri =
+host =
+printer_port = 9100
+queue_dir = data/print_queue
+cut_paper = true
