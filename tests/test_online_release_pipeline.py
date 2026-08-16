@@ -6,6 +6,7 @@ import re
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 
 from securesystemslib.signer import CryptoSigner
 
@@ -459,6 +460,23 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
                 second, bootstrap_root=self.bootstrap, channel="pilot", reference_time=self.now,
             )
             self.assertEqual(manifest["rollout_percent"], 50)
+
+            newer_release = types.SimpleNamespace(
+                version="1.2.1",
+                sequence=RELEASE.sequence + 1,
+                schema_target=RELEASE.schema_target,
+                pack_id=RELEASE.pack_id,
+            )
+            with patch("tools.build_online_release.RELEASE", newer_release):
+                with self.assertRaisesRegex(OnlineReleaseError, "identidade|release"):
+                    prepare_policy_repository(
+                        previous_repository=first,
+                        site_root=root / "wrong-release",
+                        channel="pilot", rollout_percent=60,
+                        rollout_seed="policy-seed", mandatory=False,
+                        bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                        reference_time=self.now,
+                    )
 
     def test_same_application_sequence_cannot_replace_artifact_bytes(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:

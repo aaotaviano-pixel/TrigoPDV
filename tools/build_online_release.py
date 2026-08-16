@@ -611,6 +611,17 @@ def prepare_policy_repository(
     manifest_path = previous / "targets" / "channels" / channel / "manifest.json"
     try:
         values = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (
+            str(values.get("version")) != RELEASE.version
+            or int(values.get("sequence", -1)) != RELEASE.sequence
+            or int(values.get("schema_target", -1)) != RELEASE.schema_target
+            or str(values.get("pack_id")) != RELEASE.pack_id
+            or str(values.get("channel")) != channel
+            or str(values.get("rollout_seed")) != str(rollout_seed)
+        ):
+            raise OnlineReleaseError(
+                "O modo somente política exige a identidade exata da release já publicada."
+            )
         records = values["artifacts"]
         if not isinstance(records, list) or len(records) != 2:
             raise ValueError("invalid artifacts")
@@ -630,6 +641,8 @@ def prepare_policy_repository(
             ):
                 raise ValueError("artifact mismatch")
             artifacts.append(artifact)
+    except OnlineReleaseError:
+        raise
     except Exception as exc:
         raise OnlineReleaseError("Os artefatos autenticados da política anterior são inválidos.") from exc
     return prepare_online_repository(
