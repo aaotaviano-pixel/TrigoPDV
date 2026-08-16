@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,10 +17,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class ReleaseVersionTestCase(unittest.TestCase):
     def test_runtime_release_matches_database_schema(self) -> None:
-        self.assertEqual(RELEASE.version, "1.1.0")
-        self.assertEqual(RELEASE.sequence, 2)
+        self.assertEqual(RELEASE.version, "1.2.0")
+        self.assertEqual(RELEASE.sequence, 3)
         self.assertEqual(RELEASE.schema_target, SCHEMA_VERSION)
-        self.assertEqual(RELEASE.pack_id, "TrigoDeMinas.TrigoPDV")
+        self.assertEqual(RELEASE.pack_id, "TrigoDeMinas.TrigoPDV.V2")
+        self.assertNotEqual(RELEASE.pack_id, "TrigoDeMinas.TrigoPDV")
 
     def test_generated_installer_metadata_matches_single_source(self) -> None:
         generated = (ROOT / "release" / "version.iss").read_text(encoding="utf-8")
@@ -43,11 +45,73 @@ class ReleaseVersionTestCase(unittest.TestCase):
         self.assertIn("--require-hashes", build)
         self.assertIn("requirements.lock", build)
         self.assertIn("TrigoPDV.spec", build)
+        self.assertIn(".build-venv\\Scripts\\python.exe tools\\release_gate.py", build)
+        self.assertNotIn("%BUILD_PY% tools\\release_gate.py", build)
         self.assertNotIn("del /q TrigoPDV.spec", build)
         self.assertNotIn("pip install --upgrade pip", build)
         installer = (ROOT / "TrigoPDV_Instalacao_PenDrive" / "instalador" / "Instalar_TrigoPDV.cmd").read_text(encoding="utf-8")
         self.assertIn("ProductVersion", installer)
-        self.assertIn("1.1.0", installer)
+        self.assertIn("1.2.0", installer)
+        self.assertIn("..\\TrigoPDV-Setup.exe", installer)
+        self.assertNotIn("robocopy", installer.casefold())
+
+    def test_usb_wrapper_migrates_legacy_program_without_touching_operational_data(self) -> None:
+        package = ROOT / "TrigoPDV_Instalacao_PenDrive"
+        wrapper = (package / "instalador" / "Instalar_TrigoPDV.cmd").read_text(encoding="utf-8")
+        migration = (package / "instalador" / "Migrar_Instalacao_Legada.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Migrar_Instalacao_Legada.ps1", wrapper)
+        self.assertIn("TrigoDeMinas.TrigoPDV.V2", migration)
+        self.assertIn("TrigoDeMinas.TrigoPDV", migration)
+        self.assertIn("C0E4412C-7F2A-48C8-8FCA-22D962B1B4C4", migration)
+        self.assertIn("System.Security.Cryptography.SHA256", migration)
+        self.assertIn("Update.exe", migration)
+        self.assertIn("sq.version", migration)
+        self.assertIn("current", migration)
+        self.assertNotIn("Remove-Item $dataRoot", migration)
+
+    def test_legacy_cmd_migration_is_rehearsed_in_an_isolated_windows_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / "TrigoPDV"
+            legacy = root / "TrigoDeMinas.TrigoPDV"
+            data.mkdir()
+            legacy.mkdir()
+            sentinel = data / "trigo_pdv.sqlite3"
+            sentinel.write_bytes(b"operational-data-must-survive")
+            (legacy / "old.exe").write_bytes(b"legacy-program")
+            setup = root / "fake-setup.cmd"
+            setup.write_text(
+                "@echo off\n"
+                "mkdir \"%LOCALAPPDATA%\\TrigoDeMinas.TrigoPDV.V2\\current\"\n"
+                "type nul > \"%LOCALAPPDATA%\\TrigoDeMinas.TrigoPDV.V2\\Update.exe\"\n"
+                "type nul > \"%LOCALAPPDATA%\\TrigoDeMinas.TrigoPDV.V2\\TrigoPDV.exe\"\n"
+                "type nul > \"%LOCALAPPDATA%\\TrigoDeMinas.TrigoPDV.V2\\current\\sq.version\"\n"
+                "exit /b 0\n",
+                encoding="ascii",
+            )
+            environment = dict(os.environ)
+            environment["LOCALAPPDATA"] = str(root)
+            environment["TRIGOPDV_MIGRATION_TEST_MODE"] = "1"
+            script = ROOT / "TrigoPDV_Instalacao_PenDrive/instalador/Migrar_Instalacao_Legada.ps1"
+
+            result = subprocess.run(
+                [
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-File", str(script), "-SetupPath", str(setup),
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(sentinel.read_bytes(), b"operational-data-must-survive")
+            self.assertFalse(legacy.exists())
+            self.assertEqual(len(list(root.glob("TrigoDeMinas.TrigoPDV.legado-*"))), 1)
+            self.assertTrue((root / "TrigoDeMinas.TrigoPDV.V2/current/sq.version").is_file())
 
     def test_windows_build_uses_a_supported_python_with_official_binaries(self) -> None:
         build = (ROOT / "build_release.bat").read_text(encoding="utf-8")
@@ -92,6 +156,26 @@ class ReleaseVersionTestCase(unittest.TestCase):
         )
         self.assertNotEqual(production.returncode, 0)
         self.assertIn("GATE BLOQUEADO", production.stderr)
+
+    def test_enabled_update_build_requires_a_self_signed_public_root(self) -> None:
+        from tools.release_gate import GateFailure, trusted_root_for_build
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config.ini.example").write_text(
+                "[updates]\nenabled = true\nchannel = pilot\n"
+                "base_url = https://updates.example/\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(GateFailure, "raiz TUF"):
+                trusted_root_for_build(root)
+
+            trusted = root / "updates" / "trusted"
+            trusted.mkdir(parents=True)
+            (trusted / "root.json").write_bytes(
+                (ROOT / "updates" / "trusted" / "root.json").read_bytes()
+            )
+            self.assertTrue(trusted_root_for_build(root).samefile(trusted / "root.json"))
 
 
 if __name__ == "__main__":

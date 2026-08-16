@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from threading import RLock
 from typing import Any
 
 from config.settings import Settings, save_printer_settings
@@ -23,7 +24,8 @@ from services.errors import AuthenticationError, AuthorizationError, ValidationE
 from services.pdv_service import PDVService
 from updates.coordinator import UpdateCoordinator
 from updates.event_log import UpdateEventLogger
-from updates.models import UpdatePolicy
+from updates.models import UpdatePhase, UpdatePolicy
+from updates.monitor import UpdateMonitor
 from updates.repository import TufRepository
 from updates.state import UpdateStateStore
 from updates.velopack_adapter import VelopackAdapter
@@ -52,6 +54,8 @@ class DesktopController:
             self.service.database, lambda: self.printer
         )
         self._pending_update_offer = None
+        self._update_lock = RLock()
+        self._update_monitor: UpdateMonitor | None = None
 
     def _rebuild_printer(self) -> None:
         self.printer = ReceiptPrinter(
@@ -294,6 +298,8 @@ class DesktopController:
         self.service.logout()
 
     def shutdown(self) -> None:
+        if self._update_monitor is not None:
+            self._update_monitor.stop(timeout=2.0)
         self.print_worker.shutdown(timeout=2.0)
         self.service.shutdown()
 
@@ -349,12 +355,14 @@ class DesktopController:
             event_logger=UpdateEventLogger(self.settings.data_directory / "updates" / "events.jsonl"),
         )
 
-    def admin_update_status(self) -> dict[str, Any]:
+    def admin_update_status(self, checkout_idle: bool = True) -> dict[str, Any]:
         self._require_admin()
-        coordinator = self._update_coordinator(require_repository=False)
-        state = coordinator.state_store.load()
+        with self._update_lock:
+            coordinator = self._update_coordinator(require_repository=False)
+            state = coordinator.state_store.load()
         enabled = bool(getattr(self.settings, "updates_enabled", False))
         root_exists = (Path(self.settings.resource_directory) / "updates" / "trusted" / "root.json").is_file()
+        cash_closed = self.service.get_global_open_cash() is None
         labels = {
             "IDLE": "Sistema atualizado", "AVAILABLE": "Atualização disponível",
             "DOWNLOADING": "Baixando atualização", "DOWNLOADED": "Pronta para instalar",
@@ -368,36 +376,80 @@ class DesktopController:
             "channel": getattr(self.settings, "update_channel", "stable"),
             "current_version": state.current_version, "target_version": state.target_version,
             "phase": state.phase.value, "status": labels.get(state.phase.value, state.phase.value),
-            "can_apply": state.phase.value == "DOWNLOADED", "configured": enabled and root_exists,
+            "can_apply": state.phase.value == "DOWNLOADED" and bool(checkout_idle) and cash_closed,
+            "checkout_idle": bool(checkout_idle), "cash_closed": cash_closed,
+            "configured": enabled and root_exists,
         }
+
+    def background_check_for_update(self) -> dict[str, Any]:
+        """Check and download safely without requiring an interactive session."""
+
+        with self._update_lock:
+            coordinator = self._update_coordinator(require_repository=True)
+            state = coordinator.state_store.load()
+            if state.phase in {
+                UpdatePhase.DOWNLOADING,
+                UpdatePhase.DOWNLOADED,
+                UpdatePhase.PREPARING,
+                UpdatePhase.APPLY_PENDING,
+                UpdatePhase.HEALTH_CHECK,
+            }:
+                return {
+                    "available": state.phase == UpdatePhase.DOWNLOADED,
+                    "version": state.target_version,
+                    "message": "A atualização autenticada já está em andamento ou pronta para instalar.",
+                }
+            installation_id = self.service.installation_status().installation_id
+            offer = coordinator.check_now(installation_id)
+            if offer is None:
+                return {"available": False, "message": "Nenhuma atualização liberada para esta instalação."}
+            bundle = coordinator.download(offer)
+            self._pending_update_offer = offer
+            return {
+                "available": True, "version": offer.version, "bundle": str(bundle),
+                "message": f"Versão {offer.version} autenticada e pronta para instalar.",
+            }
+
+    def start_update_monitor(self) -> bool:
+        """Start the offline-safe update monitor after the desktop is visible."""
+
+        if not bool(getattr(self.settings, "updates_enabled", False)):
+            return False
+        with self._update_lock:
+            if self._update_monitor is not None:
+                return self._update_monitor.start()
+            coordinator = self._update_coordinator(require_repository=False)
+            self._update_monitor = UpdateMonitor(
+                state_store=coordinator.state_store,
+                check_and_download=self.background_check_for_update,
+                interval_hours=int(getattr(self.settings, "update_check_interval_hours", 6)),
+                operation_lock=self._update_lock,
+            )
+            return self._update_monitor.start()
 
     def admin_check_for_update(self) -> dict[str, Any]:
         self._require_admin()
-        coordinator = self._update_coordinator(require_repository=True)
-        installation_id = self.service.installation_status().installation_id
-        offer = coordinator.check_now(installation_id)
-        if offer is None:
-            return {"available": False, "message": "Nenhuma atualização liberada para esta instalação."}
-        bundle = coordinator.download(offer)
-        self._pending_update_offer = offer
-        return {
-            "available": True, "version": offer.version, "bundle": str(bundle),
-            "message": f"Versão {offer.version} autenticada e pronta para instalar.",
-        }
+        return self.background_check_for_update()
 
-    def admin_apply_downloaded_update(self) -> dict[str, Any]:
+    def admin_apply_downloaded_update(self, checkout_idle: bool = True) -> dict[str, Any]:
         self._require_admin()
-        offer = self._pending_update_offer
-        if offer is None:
-            raise ValidationError("Verifique e baixe a atualização antes de instalar.")
-        coordinator = self._update_coordinator(require_repository=False)
-        state = coordinator.state_store.load()
-        if state.target_sequence != offer.sequence or not state.bundle_directory:
-            raise ValidationError("O pacote baixado não corresponde à atualização selecionada.")
-        coordinator.prepare_apply(
-            offer, state.bundle_directory,
-            safe_to_apply=lambda: self.service.get_global_open_cash() is None,
-        )
+        if not checkout_idle:
+            raise ValidationError("Finalize ou descarte a venda em andamento antes de atualizar.")
+        with self._update_lock:
+            coordinator = self._update_coordinator(require_repository=False)
+            offer = self._pending_update_offer
+            if offer is None:
+                try:
+                    offer = coordinator.restore_downloaded_offer()
+                except Exception as exc:
+                    raise ValidationError("Verifique e baixe a atualização antes de instalar.") from exc
+            state = coordinator.state_store.load()
+            if state.target_sequence != offer.sequence or not state.bundle_directory:
+                raise ValidationError("O pacote baixado não corresponde à atualização selecionada.")
+            coordinator.prepare_apply(
+                offer, state.bundle_directory,
+                safe_to_apply=lambda: bool(checkout_idle) and self.service.get_global_open_cash() is None,
+            )
         return {"started": True, "message": "Atualização preparada; o TrigoPDV será reiniciado."}
 
     # -- checkout / products ---------------------------------------------

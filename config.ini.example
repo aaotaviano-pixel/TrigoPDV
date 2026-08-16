@@ -39,9 +39,9 @@ cosmos_user_agent =
 show_expected_to_operator = false
 
 [updates]
-; Permanece desligado até o responsável configurar o repositório HTTPS assinado.
-enabled = false
-channel = stable
-base_url =
+; Canal piloto autenticado por TUF. Falha de internet não bloqueia o caixa.
+enabled = true
+channel = pilot
+base_url = https://aaotaviano-pixel.github.io/TrigoPDV/updates
 check_interval_hours = 6
 state_path = data/updates/update-state.json

@@ -3,7 +3,7 @@
 ## Levar
 
 - computador Windows 10 ou 11, com usuário que possa instalar programas;
-- pen drive com a pasta completa do TrigoPDV 1.1.0;
+- pen drive com a pasta completa do TrigoPDV 1.2.0;
 - teclado, mouse e leitor de código de barras USB configurado como teclado;
 - impressora térmica já instalada no Windows, papel e cabo USB/rede;
 - valores e contagem reais do estoque para revisar preços e saldos;
@@ -15,8 +15,8 @@ banco é local e é criado automaticamente em `%LOCALAPPDATA%\TrigoPDV`.
 ## Instalar
 
 1. Copie a pasta completa do pen drive para o computador.
-2. Execute `TrigoPDV-Setup.exe`. Se necessário, use
-   `instalador\Instalar_TrigoPDV.cmd` como alternativa.
+2. Execute `instalador\Instalar_TrigoPDV.cmd`. Ele preserva a pasta de dados,
+   migra uma instalação antiga e valida a estrutura do atualizador.
 3. Abra pelo atalho. Na primeira tela, crie o administrador e guarde o código
    de recuperação fora do computador e longe do caixa.
 4. Entre com o administrador e crie o usuário operador. Não compartilhe senhas.
@@ -24,6 +24,10 @@ banco é local e é criado automaticamente em `%LOCALAPPDATA%\TrigoPDV`.
    no Windows e faça uma impressão física de teste.
 6. Revise os preços do catálogo e faça inventário antes de ativar bloqueio de
    estoque. O catálogo começa com saldo físico zero.
+7. Em Configurações, confirme que `Atualização segura do sistema` mostra o
+   canal piloto configurado. A verificação não deve impedir vendas sem internet.
+8. Feche o caixa de treinamento antes de testar `Instalar agora`; nunca force
+   uma atualização durante uma venda.
 
 ## Teste antes da primeira venda real
 
@@ -44,5 +48,7 @@ banco é local e é criado automaticamente em `%LOCALAPPDATA%\TrigoPDV`.
 - a impressão real depende do driver e da fila instalados nessa máquina;
 - a consulta de GTIN novo depende de internet e da configuração válida da API;
 - produtos já cadastrados, vendas e caixa continuam locais sem internet;
-- atualização online segura fica desativada até o fornecedor configurar
-  servidor HTTPS e assinatura. Atualize amanhã somente pelo pacote confiável.
+- o canal piloto usa HTTPS e metadados TUF autenticados. O primeiro 1.2.0 vem
+  pelo pen drive; versões seguintes podem ser baixadas pelo próprio PDV.
+- sem certificado Authenticode, o piloto pode gerar aviso do Windows; o canal
+  `stable` permanece bloqueado até assinatura empresarial e ensaio físico.

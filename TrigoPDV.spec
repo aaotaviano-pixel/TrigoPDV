@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 from pathlib import Path
+from tools.release_gate import trusted_root_for_build
 
 datas = [
     ('config.ini.example', '.'),
@@ -8,8 +9,9 @@ datas = [
     ('TrigoPDV_Instalacao_PenDrive/dados-iniciais/catalogo-produtos.sqlite3', 'catalog'),
     ('TrigoPDV_Instalacao_PenDrive/dados-iniciais/catalogo-produtos.manifest.json', 'catalog'),
 ]
-if Path('updates/trusted/root.json').is_file():
-    datas.append(('updates/trusted/root.json', 'updates/trusted'))
+trusted_root = trusted_root_for_build(Path.cwd())
+if trusted_root is not None:
+    datas.append((str(trusted_root), 'updates/trusted'))
 binaries = []
 hiddenimports = ['win32print', 'printing.discovery', 'printing.ipp', 'escpos.printer']
 tmp_ret = collect_all('qrcode')

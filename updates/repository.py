@@ -7,6 +7,8 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 from uuid import uuid4
 
+from config.version import RELEASE
+
 from .models import TrustedArtifact, UpdateOffer, UpdatePolicy
 
 
@@ -49,11 +51,13 @@ class TufRepository:
         try:
             if self._updater_factory is not None:
                 return self._updater_factory(**kwargs)
-            from tuf.ngclient import Updater
             from tuf.ngclient.config import UpdaterConfig
+            from .tuf_client import WindowsSafeUpdater
 
-            kwargs["config"] = UpdaterConfig(app_user_agent="TrigoPDV-Updater/1.1.0")
-            return Updater(**kwargs)
+            kwargs["config"] = UpdaterConfig(
+                app_user_agent=f"TrigoPDV-Updater/{RELEASE.version}"
+            )
+            return WindowsSafeUpdater(**kwargs)
         except Exception as exc:
             raise UpdateRepositoryError("Não foi possível iniciar a validação criptográfica da atualização.") from exc
 

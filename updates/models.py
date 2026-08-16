@@ -94,7 +94,7 @@ class UpdateOffer:
     artifacts: tuple[TrustedArtifact, ...] = ()
 
     def validate(self, policy: UpdatePolicy, *, current_sequence: int) -> None:
-        if self.pack_id != RELEASE.pack_id or self.schema_target != RELEASE.schema_target:
+        if self.pack_id != RELEASE.pack_id or self.schema_target < RELEASE.schema_target:
             raise ValueError("A atualização não pertence a esta instalação.")
         if self.channel != policy.channel or self.sequence <= int(current_sequence):
             raise ValueError("A sequência ou o canal da atualização são incompatíveis.")

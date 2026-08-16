@@ -396,6 +396,19 @@ class UIAccessibilityTestCase(unittest.TestCase):
             if admin_view._printer_task_queue is None:
                 break
 
+    def test_scheduled_update_exits_through_the_graceful_tk_shutdown_path(self) -> None:
+        self.app.show_admin()
+        self.app.update()
+        admin_view = self.app.admin_view
+        assert admin_view is not None
+        shutdown = Mock()
+        admin_view.on_update_scheduled = shutdown
+
+        admin_view._update_apply_completed({"message": "Atualização preparada."})
+        self.app.update()
+
+        shutdown.assert_called_once_with()
+
     def test_printer_actions_recover_after_background_failure(self) -> None:
         self.app.show_admin()
         self.app.update()

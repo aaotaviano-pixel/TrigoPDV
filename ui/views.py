@@ -1250,11 +1250,21 @@ class SaleView(tk.Frame):
 class AdminView(tk.Frame):
     """Admin-only inventory, cash-close and maintenance workspace."""
 
-    def __init__(self, master: tk.Misc, controller: object, user: Mapping[str, Any], on_back: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        master: tk.Misc,
+        controller: object,
+        user: Mapping[str, Any],
+        on_back: Callable[[], None],
+        on_update_scheduled: Callable[[], None] | None = None,
+        checkout_idle: Callable[[], bool] | None = None,
+    ) -> None:
         super().__init__(master, bg=Colors.CREAM)
         self.controller = controller
         self.user = user
         self.on_back = on_back
+        self.on_update_scheduled = on_update_scheduled
+        self.checkout_idle = checkout_idle or (lambda: True)
         self.notice: NoticeBar | None = None
         self.products: list[Mapping[str, Any]] = []
         self.users: list[Mapping[str, Any]] = []
@@ -1725,7 +1735,7 @@ class AdminView(tk.Frame):
 
     def refresh_update_status(self) -> None:
         try:
-            status = invoke(self.controller, "admin_update_status") or {}
+            status = invoke(self.controller, "admin_update_status", bool(self.checkout_idle())) or {}
         except Exception as exc:
             self.update_status_var.set(str(exc))
             self.update_version_var.set("Versão —")
@@ -1800,8 +1810,12 @@ class AdminView(tk.Frame):
             if self._update_apply_button:
                 self._update_apply_button.configure(state="disabled", text="Preparando…")
             self._update_task(
-                lambda: invoke(self.controller, "admin_apply_downloaded_update") or {},
-                lambda result: self.show_notice(str(result.get("message") or "Atualização preparada."), "success"),
+                lambda: invoke(
+                    self.controller,
+                    "admin_apply_downloaded_update",
+                    bool(self.checkout_idle()),
+                ) or {},
+                self._update_apply_completed,
             )
             return True
 
@@ -1811,6 +1825,14 @@ class AdminView(tk.Frame):
             "O caixa precisa estar fechado. O sistema fará uma cópia de segurança, encerrará e reiniciará na nova versão. Continuar?",
             start,
         )
+
+    def _update_apply_completed(self, result: Mapping[str, Any]) -> None:
+        self.show_notice(str(result.get("message") or "Atualização preparada."), "success")
+        if self.on_update_scheduled is not None:
+            # This callback is reached by the Tk poller, never by the worker.
+            # Destroying the root therefore performs controller.shutdown()
+            # before Velopack replaces files instead of waiting to kill PDV.
+            self.after_idle(self.on_update_scheduled)
 
     def _printer_task(self, work: Callable[[], Any], done: Callable[[Any], None]) -> None:
         """Run spooler/configuration work away from Tk's main loop."""

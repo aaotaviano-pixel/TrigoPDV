@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 APP_NAME = "TrigoPDV"
 DATA_DIRECTORY_ENV = "TRIGOPDV_DATA_DIR"
+PILOT_UPDATE_URL = "https://aaotaviano-pixel.github.io/TrigoPDV/updates"
 
 
 def _resource_root() -> Path:
@@ -196,6 +197,9 @@ def load_settings(config_path: Path | str = DEFAULT_CONFIG_PATH, *, create_if_mi
         raise ConfigurationError("As configurações de atualização são inválidas.") from exc
     update_channel = _get(parser, "updates", "channel", "stable").strip().lower() or "stable"
     update_base_url = _get(parser, "updates", "base_url", "").strip()
+    # Nunca transforme `enabled = false` em consentimento implícito. Instalações
+    # novas recebem o piloto pelo arquivo de exemplo; uma escolha persistida de
+    # desativação continua desativada depois de atualizar o executável.
     if update_channel not in {"internal", "pilot", "stable"}:
         raise ConfigurationError("O canal de atualização deve ser internal, pilot ou stable.")
     if not 1 <= update_check_interval_hours <= 168:
