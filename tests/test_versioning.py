@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -60,6 +61,22 @@ class ReleaseVersionTestCase(unittest.TestCase):
         build = (ROOT / "installer" / "build_installer.bat").read_text(encoding="utf-8")
         self.assertIn("%LOCALAPPDATA%\\Programs\\Inno Setup 6\\ISCC.exe", build)
         self.assertIn("%ProgramFiles%\\Inno Setup 6\\ISCC.exe", build)
+
+    def test_lock_digest_is_independent_of_windows_line_endings(self) -> None:
+        import tools.release_gate as release_gate
+
+        self.assertTrue(hasattr(release_gate, "_normalized_text_sha256"))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lf = root / "lf.lock"
+            crlf = root / "crlf.lock"
+            lf.write_bytes(b"package==1.0 --hash=sha256:abc\nnext==2.0\n")
+            crlf.write_bytes(b"package==1.0 --hash=sha256:abc\r\nnext==2.0\r\n")
+            self.assertEqual(
+                release_gate._normalized_text_sha256(lf),
+                release_gate._normalized_text_sha256(crlf),
+            )
 
     def test_source_release_gate_passes_and_production_fails_closed_without_keys(self) -> None:
         source = subprocess.run(

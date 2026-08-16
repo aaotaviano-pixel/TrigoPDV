@@ -25,6 +25,12 @@ class GateFailure(RuntimeError):
     pass
 
 
+def _normalized_text_sha256(path: Path) -> str:
+    text = path.read_text(encoding="utf-8-sig")
+    canonical = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _source_gate() -> None:
     if RELEASE.schema_target != SCHEMA_VERSION:
         raise GateFailure("Versão e schema não coincidem.")
@@ -49,7 +55,7 @@ def _source_gate() -> None:
         raise GateFailure("O lock de dependências termina com uma continuação incompleta.")
     if not lock_lines or any("==" not in line or "--hash=sha256:" not in line for line in lock_lines):
         raise GateFailure("O lock de dependências não possui versões e hashes completos.")
-    lock_digest = hashlib.sha256((ROOT / "requirements.lock").read_bytes()).hexdigest()
+    lock_digest = _normalized_text_sha256(ROOT / "requirements.lock")
     recorded_lock_digest = (ROOT / "release" / "sbom.lock.sha256").read_text(encoding="utf-8").strip()
     if lock_digest != recorded_lock_digest or not (ROOT / "release" / "sbom.cdx.json").is_file():
         raise GateFailure("O SBOM precisa ser regenerado após alterar o lock de dependências.")

@@ -72,7 +72,7 @@ def _join_or_terminate(testcase: unittest.TestCase, process: multiprocessing.Pro
 @unittest.skipUnless(os.name == "nt", "CreateFileW é validado somente no Windows")
 class SingleInstanceWin32TestCase(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
         self.root = Path(self.temporary.name)
         self.lock_dir = self.root / "runtime-locks"
         self.context = multiprocessing.get_context("spawn")
