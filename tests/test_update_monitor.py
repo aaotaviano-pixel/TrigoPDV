@@ -58,6 +58,19 @@ class UpdateMonitorTestCase(unittest.TestCase):
             self.assertFalse(monitor.run_due_check())
             self.assertEqual(calls, [])
 
+    def test_background_wait_uses_only_the_remaining_interval(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            now = datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc)
+            store = UpdateStateStore(Path(directory) / "state.json")
+            store.save(UpdateState(last_check_at=(now - timedelta(hours=5)).isoformat()))
+            monitor = UpdateMonitor(
+                state_store=store,
+                check_and_download=lambda: None,
+                interval_hours=6,
+                clock=lambda: now,
+            )
+            self.assertEqual(monitor.seconds_until_due(), 60 * 60)
+
     def test_failure_is_offline_safe_and_does_not_destroy_downloaded_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc)

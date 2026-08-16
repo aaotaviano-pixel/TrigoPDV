@@ -12,13 +12,25 @@ $dataRoot = Join-Path $env:LOCALAPPDATA 'TrigoPDV'
 $legacyRoot = Join-Path $env:LOCALAPPDATA $legacyPackId
 $newRoot = Join-Path $env:LOCALAPPDATA $newPackId
 
+function Get-Sha256 {
+    param([string]$Path)
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '')
+    } finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 function Get-DataFingerprint {
     param([string]$Root)
     $result = @{}
     if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return $result }
     Get-ChildItem -LiteralPath $Root -File -Recurse -Force | ForEach-Object {
         $relative = $_.FullName.Substring($Root.Length).TrimStart('\')
-        $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        $hash = Get-Sha256 -Path $_.FullName
         $result[$relative] = "$($_.Length):$hash"
     }
     return $result

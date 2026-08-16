@@ -28,7 +28,7 @@ A versão instalada atualmente não contém uma raiz TUF definitiva. Haverá uma
 1. embute apenas `updates/trusted/root.json` público;
 2. habilita por padrão o canal `pilot` e a URL HTTPS acima em instalações novas;
 3. preserva `config.ini`, banco, WAL/SHM, impressora, fila e backups existentes;
-4. cria a estrutura Velopack com `packId=TrigoDeMinas.TrigoPDV`.
+4. cria a nova estrutura Velopack com `packId=TrigoDeMinas.TrigoPDV.V2`.
 
 Depois desse bootstrap, releases com sequência maior são descobertas online.
 Uma configuração local explicitamente desabilitada continua sendo respeitada.
@@ -42,6 +42,11 @@ Uma configuração local explicitamente desabilitada continua sendo respeitada.
   secrets protegidos no ambiente `github-pages` do GitHub.
 - O workflow nunca imprime chaves e rejeita valores ausentes, metadados
   expirados, sequência não monotônica, artefato adulterado e canal inválido.
+- Um checkpoint exato de continuidade (versão TUF e hashes de metadados e
+  manifestos por canal) fica em artefato protegido do último deploy concluído,
+  separado do Pages. O publicador exige correspondência integral entre ambos.
+- Resposta 404 só inicia a árvore na cerimônia manual explícita da primeira
+  publicação; perda posterior do Pages ou do checkpoint falha fechada.
 - O canal `stable` falha fechado sem Authenticode e timestamp válidos. O piloto
   pode usar pacote ainda sem Authenticode, mas somente depois da validação TUF e
   com indicação explícita de que continua sendo piloto.
@@ -50,7 +55,8 @@ Uma configuração local explicitamente desabilitada continua sendo respeitada.
 
 ## Pipeline de publicação
 
-Um workflow manual recebe somente `channel`, `rollout_percent` e `mandatory`.
+Um workflow manual recebe `channel`, `rollout_percent`, `mandatory` e o sinal
+de inicialização vazia, usado uma única vez na primeira publicação.
 Versão, sequência, schema e pack ID vêm de `release/version.toml`.
 
 1. CI Windows instala o lock com hashes e executa a suíte/gate de fonte.
@@ -65,6 +71,13 @@ Versão, sequência, schema e pack ID vêm de `release/version.toml`.
    manifesto e todos os artefatos, e compara hashes antes do deploy.
 8. GitHub Pages publica uma única árvore estática. O cliente rejeita qualquer
    estado intermediário incoerente e tenta novamente no próximo intervalo.
+9. Somente depois do deploy concluído, o workflow registra o novo checkpoint
+   independente. A agenda de 12 horas apenas renova versão/expiração TUF,
+   preservando byte a byte todos os targets, políticas e artefatos.
+
+Uma republicação na mesma sequência pode apenas ampliar uma política já
+assinada e exige os mesmos nomes, tamanhos e SHA-256 dos artefatos. Bytes novos
+exigem sequência de aplicação maior.
 
 O workflow não lê banco, configuração, produtos operacionais, vendas, backups ou
 fila de impressão.

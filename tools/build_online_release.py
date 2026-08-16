@@ -41,6 +41,83 @@ class OnlineRepositoryResult:
     write_order: tuple[str, ...]
 
 
+CHANNELS = ("internal", "pilot", "stable")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def create_continuity_checkpoint(repository_root: str | Path) -> dict:
+    """Create the independent ledger record for one authenticated publication."""
+
+    from tuf.api.metadata import Metadata, Timestamp
+
+    root = Path(repository_root).resolve()
+    try:
+        timestamp = Metadata.from_file(root / "metadata" / "timestamp.json")
+        if not isinstance(timestamp.signed, Timestamp):
+            raise ValueError("not timestamp")
+        channels: dict[str, dict[str, object]] = {}
+        channel_root = root / "targets" / "channels"
+        if channel_root.is_dir():
+            for manifest in sorted(channel_root.glob("*/manifest.json")):
+                channel = manifest.parent.name
+                if channel not in CHANNELS:
+                    raise ValueError("unknown channel")
+                values = json.loads(manifest.read_text(encoding="utf-8"))
+                if values.get("channel") != channel or int(values["sequence"]) <= 0:
+                    raise ValueError("invalid manifest")
+                channels[channel] = {
+                    "sequence": int(values["sequence"]),
+                    "manifest_sha256": _sha256(manifest),
+                }
+        if not channels:
+            raise ValueError("missing channels")
+        return {
+            "format": 1,
+            "metadata_version": int(timestamp.signed.version),
+            "root_sha256": _sha256(root / "metadata" / "root.json"),
+            "timestamp_sha256": _sha256(root / "metadata" / "timestamp.json"),
+            "snapshot_sha256": _sha256(root / "metadata" / "snapshot.json"),
+            "targets_sha256": _sha256(root / "metadata" / "targets.json"),
+            "channels": channels,
+        }
+    except Exception as exc:
+        raise OnlineReleaseError("O checkpoint de continuidade não pôde ser criado.") from exc
+
+
+def load_continuity_checkpoint(path: str | Path) -> dict:
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or int(value.get("format", 0)) != 1:
+            raise ValueError("invalid checkpoint")
+        return value
+    except Exception as exc:
+        raise OnlineReleaseError("O checkpoint de continuidade é inválido.") from exc
+
+
+def write_continuity_checkpoint(repository_root: str | Path, output: str | Path) -> Path:
+    destination = Path(output).resolve()
+    if destination.exists():
+        raise OnlineReleaseError("O checkpoint de continuidade de saída já existe.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(create_continuity_checkpoint(repository_root), sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, destination)
+        return destination
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _remote_bytes(
     base_url: str,
     *,
@@ -95,6 +172,8 @@ def download_authenticated_repository(
     destination: str | Path,
     *,
     bootstrap_root: bytes,
+    continuity_checkpoint: Mapping[str, object] | None = None,
+    allow_empty_initialization: bool = False,
     request_get: Callable | None = None,
 ) -> Path | None:
     """Mirror the current Pages tree only after validating its full TUF chain.
@@ -121,7 +200,13 @@ def download_authenticated_repository(
             request_get=request_get,
         )
         if timestamp_bytes is None:
-            return None
+            if allow_empty_initialization and continuity_checkpoint is None:
+                return None
+            raise OnlineReleaseError(
+                "A continuidade TUF está ausente; use a cerimônia explícita apenas na primeira inicialização."
+            )
+        if continuity_checkpoint is None:
+            raise OnlineReleaseError("O checkpoint independente de continuidade é obrigatório.")
         timestamp = Metadata.from_bytes(timestamp_bytes)
         if not isinstance(timestamp.signed, Timestamp):
             raise ValueError("not timestamp")
@@ -178,6 +263,10 @@ def download_authenticated_repository(
                 local = staging / "targets" / Path(*path.parts)
                 local.parent.mkdir(parents=True, exist_ok=True)
                 local.write_bytes(payload)
+            if create_continuity_checkpoint(staging) != dict(continuity_checkpoint):
+                raise OnlineReleaseError(
+                    "O Pages autenticado diverge do checkpoint independente de continuidade."
+                )
             os.replace(staging, output)
         finally:
             if staging.exists():
@@ -308,6 +397,21 @@ def prepare_online_repository(
                         raise OnlineReleaseError("A expansão de rollout deve preservar a coorte assinada.")
                     if int(rollout_percent) < old_rollout or (bool(old.get("mandatory")) and not mandatory):
                         raise OnlineReleaseError("A republicação não pode enfraquecer a política já assinada.")
+                    expected_artifacts = [
+                        {
+                            "target": f"releases/{RELEASE.version}/{artifact.name}",
+                            "length": artifact.stat().st_size,
+                            "sha256": _sha256(artifact),
+                        }
+                        for artifact in clean_artifacts
+                    ]
+                    old_artifacts = old.get("artifacts")
+                    if not isinstance(old_artifacts, list) or sorted(
+                        old_artifacts, key=lambda item: str(item.get("target", ""))
+                    ) != sorted(expected_artifacts, key=lambda item: item["target"]):
+                        raise OnlineReleaseError(
+                            "A mesma sequência não pode substituir os artefatos já publicados."
+                        )
         create_manifest(
             clean_artifacts,
             unsigned,
@@ -346,6 +450,66 @@ def prepare_online_repository(
             shutil.rmtree(workspace, ignore_errors=True)
 
 
+def refresh_online_repository(
+    *,
+    previous_repository: str | Path,
+    site_root: str | Path,
+    bootstrap_root: bytes,
+    role_signers: Mapping[str, Signer],
+    reference_time: datetime | None = None,
+) -> OnlineRepositoryResult:
+    """Refresh TUF expiry/version while preserving every signed target byte."""
+
+    previous = Path(previous_repository).resolve()
+    site = Path(site_root).resolve()
+    if site.exists() or not (previous / "targets").is_dir():
+        raise OnlineReleaseError("A renovação exige um repositório anterior autenticado.")
+    from tuf.api.metadata import Metadata, Timestamp
+
+    now = (reference_time or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    workspace = site.parent / f".{site.name}.{uuid4().hex}.refresh"
+    try:
+        shutil.copytree(previous / "targets", workspace / "targets")
+        timestamp = Metadata.from_file(previous / "metadata" / "timestamp.json")
+        if not isinstance(timestamp.signed, Timestamp):
+            raise OnlineReleaseError("O timestamp TUF anterior é inválido.")
+        published = publish_repository(
+            workspace / "targets",
+            site / "updates",
+            bootstrap_root=bytes(bootstrap_root),
+            role_signers=role_signers,
+            metadata_version=int(timestamp.signed.version) + 1,
+            targets_expires=now + timedelta(days=90),
+            snapshot_expires=now + timedelta(days=14),
+            timestamp_expires=now + timedelta(days=2),
+            reference_time=now,
+            previous_repository=previous,
+        )
+        channels = sorted(
+            path.parent.name
+            for path in (published.root / "targets" / "channels").glob("*/manifest.json")
+        )
+        if not channels or any(channel not in CHANNELS for channel in channels):
+            raise OnlineReleaseError("Os canais autenticados anteriores são inválidos.")
+        for channel in channels:
+            verify_repository(
+                published.root,
+                bootstrap_root=bytes(bootstrap_root),
+                channel=channel,
+                reference_time=now,
+            )
+        return OnlineRepositoryResult(published.root, published.write_order)
+    except OnlineReleaseError:
+        raise
+    except Exception as exc:
+        if site.exists():
+            shutil.rmtree(site, ignore_errors=True)
+        raise OnlineReleaseError("A renovação de validade TUF falhou.") from exc
+    finally:
+        if workspace.exists():
+            shutil.rmtree(workspace, ignore_errors=True)
+
+
 def _load_online_signers() -> dict[str, Signer]:
     signers: dict[str, Signer] = {}
     for role, secret_name in SECRET_NAMES.items():
@@ -370,13 +534,21 @@ def _find_velopack_artifacts(directory: Path, channel: str) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Gera a árvore TUF/Velopack do TrigoPDV.")
-    parser.add_argument("--channel", choices=("internal", "pilot", "stable"), required=True)
+    parser.add_argument("--channel", choices=CHANNELS)
     parser.add_argument("--pack-directory", type=Path, default=ROOT / "dist" / "TrigoPDV")
     parser.add_argument("--release-directory", type=Path, default=ROOT / "release" / "velopack")
     parser.add_argument("--site-root", type=Path, default=ROOT / "_site")
     parser.add_argument("--rollout", type=int, default=100)
-    parser.add_argument("--seed", required=True)
+    parser.add_argument("--seed")
     parser.add_argument("--mandatory", action="store_true")
+    parser.add_argument("--refresh-only", action="store_true")
+    parser.add_argument("--initialize-empty", action="store_true")
+    parser.add_argument("--continuity-checkpoint", type=Path)
+    parser.add_argument(
+        "--continuity-output",
+        type=Path,
+        default=ROOT / "_continuity-next" / "checkpoint.json",
+    )
     args = parser.parse_args()
     previous_directory = ROOT / ".previous-update-repository"
     try:
@@ -384,11 +556,32 @@ def main() -> int:
         if not root_path.is_file():
             raise OnlineReleaseError("A raiz TUF pública definitiva não acompanha a montagem.")
         root_bytes = root_path.read_bytes()
+        checkpoint = (
+            load_continuity_checkpoint(args.continuity_checkpoint)
+            if args.continuity_checkpoint is not None and args.continuity_checkpoint.is_file()
+            else None
+        )
         previous_repository = download_authenticated_repository(
             PILOT_UPDATE_URL,
             previous_directory,
             bootstrap_root=root_bytes,
+            continuity_checkpoint=checkpoint,
+            allow_empty_initialization=bool(args.initialize_empty),
         )
+        if args.refresh_only:
+            if args.initialize_empty or previous_repository is None:
+                raise OnlineReleaseError("A renovação agendada nunca inicializa um repositório vazio.")
+            result = refresh_online_repository(
+                previous_repository=previous_repository,
+                site_root=args.site_root,
+                bootstrap_root=root_bytes,
+                role_signers=_load_online_signers(),
+            )
+            write_continuity_checkpoint(result.repository_root, args.continuity_output)
+            print("Validade TUF renovada sem alterar release, rollout ou artefatos.")
+            return 0
+        if args.channel is None or not args.seed:
+            raise OnlineReleaseError("Canal e semente são obrigatórios para publicar uma release.")
         if args.release_directory.exists():
             raise OnlineReleaseError("A pasta Velopack precisa começar vazia.")
         args.release_directory.mkdir(parents=True)
@@ -402,7 +595,7 @@ def main() -> int:
         )
         artifacts = _find_velopack_artifacts(args.release_directory, args.channel)
         setup_candidates = sorted(args.release_directory.glob("*Setup*.exe"))
-        prepare_online_repository(
+        result = prepare_online_repository(
             artifacts=artifacts,
             site_root=args.site_root,
             channel=args.channel,
@@ -414,6 +607,7 @@ def main() -> int:
             signed_binaries=[args.pack_directory / "TrigoPDV.exe", *setup_candidates],
             previous_repository=previous_repository,
         )
+        write_continuity_checkpoint(result.repository_root, args.continuity_output)
     except OnlineReleaseError as exc:
         print(f"RELEASE ONLINE BLOQUEADA: {exc}", file=sys.stderr)
         return 1

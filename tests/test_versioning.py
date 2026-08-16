@@ -65,7 +65,7 @@ class ReleaseVersionTestCase(unittest.TestCase):
         self.assertIn("TrigoDeMinas.TrigoPDV.V2", migration)
         self.assertIn("TrigoDeMinas.TrigoPDV", migration)
         self.assertIn("C0E4412C-7F2A-48C8-8FCA-22D962B1B4C4", migration)
-        self.assertIn("Get-FileHash", migration)
+        self.assertIn("System.Security.Cryptography.SHA256", migration)
         self.assertIn("Update.exe", migration)
         self.assertIn("sq.version", migration)
         self.assertIn("current", migration)
@@ -175,7 +175,7 @@ class ReleaseVersionTestCase(unittest.TestCase):
             (trusted / "root.json").write_bytes(
                 (ROOT / "updates" / "trusted" / "root.json").read_bytes()
             )
-            self.assertEqual(trusted_root_for_build(root), trusted / "root.json")
+            self.assertTrue(trusted_root_for_build(root).samefile(trusted / "root.json"))
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ def _safe_sources(source: Path) -> list[tuple[str, Path]]:
         if lowered in {MANIFEST_NAME.casefold(), SETUP_NAME.casefold()}:
             continue
         if (
-            lowered.endswith(("-wal", "-shm"))
+            lowered.endswith(("-wal", "-shm", "-journal"))
             or PurePosixPath(relative).name.casefold() == "config.ini"
             or (lowered.endswith((".sqlite", ".sqlite3", ".db")) and lowered != ALLOWED_SQLITE)
         ):

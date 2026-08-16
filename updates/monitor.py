@@ -78,8 +78,22 @@ class UpdateMonitor:
     def _run(self) -> None:
         while not self._stop.is_set():
             self.run_due_check()
-            if self._stop.wait(self.interval.total_seconds()):
+            if self._stop.wait(max(1.0, self.seconds_until_due())):
                 break
+
+    def seconds_until_due(self) -> float:
+        """Return the remaining delay instead of restarting a full interval."""
+
+        try:
+            state = self.state_store.load()
+        except Exception:
+            return self.interval.total_seconds()
+        last_check = self._parse_utc(state.last_check_at)
+        if last_check is None:
+            return 0.0
+        now = self.clock().astimezone(timezone.utc)
+        remaining = self.interval - (now - last_check)
+        return max(0.0, remaining.total_seconds())
 
     def start(self) -> bool:
         """Start once and return immediately; repeated starts are ignored."""

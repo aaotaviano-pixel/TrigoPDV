@@ -11,9 +11,11 @@ from securesystemslib.signer import CryptoSigner
 
 from config.version import RELEASE
 from tools.build_online_release import (
+    create_continuity_checkpoint,
     download_authenticated_repository,
     OnlineReleaseError,
     prepare_online_repository,
+    refresh_online_repository,
     velopack_pack_command,
 )
 from tools.tuf_repository import create_root_metadata, verify_repository
@@ -209,10 +211,12 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
                 relative = url.split(marker, 1)[1]
                 return Response((published / relative).read_bytes())
 
+            checkpoint = create_continuity_checkpoint(published)
             downloaded = download_authenticated_repository(
                 "https://updates.example/updates",
                 root / "downloaded",
                 bootstrap_root=self.bootstrap,
+                continuity_checkpoint=checkpoint,
                 request_get=getter,
             )
             self.assertIsNotNone(downloaded)
@@ -226,7 +230,146 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
                     "https://updates.example/updates",
                     root / "tampered-download",
                     bootstrap_root=self.bootstrap,
+                    continuity_checkpoint=checkpoint,
                     request_get=getter,
+                )
+
+    def test_remote_404_requires_explicit_one_time_initialization(self) -> None:
+        class MissingResponse:
+            status_code = 404
+            headers = {}
+
+            def iter_content(self, chunk_size):
+                return iter(())
+
+            def close(self):
+                pass
+
+        getter = lambda url, **kwargs: MissingResponse()
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(OnlineReleaseError, "inicialização|continuidade"):
+                download_authenticated_repository(
+                    "https://updates.example/updates",
+                    root / "missing",
+                    bootstrap_root=self.bootstrap,
+                    request_get=getter,
+                )
+            self.assertIsNone(download_authenticated_repository(
+                "https://updates.example/updates",
+                root / "first-publication",
+                bootstrap_root=self.bootstrap,
+                allow_empty_initialization=True,
+                request_get=getter,
+            ))
+
+    def test_independent_checkpoint_must_match_authenticated_pages_exactly(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            published = prepare_online_repository(
+                artifacts=self._artifacts(root / "artifacts", "pilot"),
+                site_root=root / "site",
+                channel="pilot",
+                rollout_percent=10,
+                rollout_seed="checkpoint-seed",
+                mandatory=False,
+                bootstrap_root=self.bootstrap,
+                role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            checkpoint = create_continuity_checkpoint(published)
+            stale = dict(checkpoint)
+            stale["metadata_version"] = int(checkpoint["metadata_version"]) - 1
+
+            class Response:
+                def __init__(self, payload):
+                    self.status_code = 200
+                    self.headers = {"Content-Length": str(len(payload))}
+                    self.payload = payload
+                def iter_content(self, chunk_size):
+                    yield self.payload
+                def close(self):
+                    pass
+
+            def getter(url, **kwargs):
+                relative = url.split("/updates/", 1)[1]
+                return Response((published / relative).read_bytes())
+
+            with self.assertRaisesRegex(OnlineReleaseError, "continuidade"):
+                download_authenticated_repository(
+                    "https://updates.example/updates",
+                    root / "stale",
+                    bootstrap_root=self.bootstrap,
+                    continuity_checkpoint=stale,
+                    request_get=getter,
+                )
+
+    def test_refresh_only_preserves_every_target_byte_and_policy(self) -> None:
+        from datetime import timedelta
+        from tuf.api.metadata import Metadata, Timestamp
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            first = prepare_online_repository(
+                artifacts=self._artifacts(root / "artifacts", "pilot"),
+                site_root=root / "first",
+                channel="pilot",
+                rollout_percent=7,
+                rollout_seed="refresh-only-seed",
+                mandatory=True,
+                bootstrap_root=self.bootstrap,
+                role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            before = {
+                path.relative_to(first / "targets").as_posix(): path.read_bytes()
+                for path in (first / "targets").rglob("*") if path.is_file()
+            }
+            refreshed = refresh_online_repository(
+                previous_repository=first,
+                site_root=root / "refreshed",
+                bootstrap_root=self.bootstrap,
+                role_signers=self.role_signers,
+                reference_time=self.now + timedelta(days=3),
+            ).repository_root
+            after = {
+                path.relative_to(refreshed / "targets").as_posix(): path.read_bytes()
+                for path in (refreshed / "targets").rglob("*") if path.is_file()
+            }
+            self.assertEqual(after, before)
+            old_timestamp = Metadata.from_file(first / "metadata/timestamp.json")
+            new_timestamp = Metadata.from_file(refreshed / "metadata/timestamp.json")
+            self.assertIsInstance(new_timestamp.signed, Timestamp)
+            self.assertEqual(new_timestamp.signed.version, old_timestamp.signed.version + 1)
+
+    def test_same_application_sequence_cannot_replace_artifact_bytes(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            first = prepare_online_repository(
+                artifacts=self._artifacts(root / "first-artifacts", "pilot"),
+                site_root=root / "first-site",
+                channel="pilot",
+                rollout_percent=10,
+                rollout_seed="immutable-seed",
+                mandatory=False,
+                bootstrap_root=self.bootstrap,
+                role_signers=self.role_signers,
+                reference_time=self.now,
+            )
+            changed = self._artifacts(root / "changed-artifacts", "pilot")
+            changed[0].write_bytes(b"different-package-for-same-sequence")
+            with self.assertRaisesRegex(OnlineReleaseError, "artefatos|sequência"):
+                prepare_online_repository(
+                    artifacts=changed,
+                    site_root=root / "second-site",
+                    channel="pilot",
+                    rollout_percent=100,
+                    rollout_seed="immutable-seed",
+                    mandatory=False,
+                    bootstrap_root=self.bootstrap,
+                    role_signers=self.role_signers,
+                    previous_repository=first.repository_root,
+                    reference_time=self.now,
                 )
 
     def test_expired_timestamp_can_be_refreshed_for_a_persistent_client(self) -> None:
@@ -419,6 +562,9 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
         self.assertIn("github.ref }}' -ne 'refs/heads/main'", publication)
         self.assertIn("tools/stage_usb_installer.py", publication)
         self.assertIn("trigopdv-usb-package", publication)
+        self.assertIn("refresh-only", publication)
+        self.assertIn("initialize_empty_repository", publication)
+        self.assertIn("trigopdv-tuf-continuity", publication)
 
 
 if __name__ == "__main__":

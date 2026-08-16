@@ -38,7 +38,13 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
             source.mkdir()
             setup = root / "setup.exe"
             setup.write_bytes(b"setup")
-            for name in ("trigo_pdv.sqlite3", "catalogo-produtos.sqlite3-wal", "config.ini"):
+            for name in (
+                "trigo_pdv.sqlite3",
+                "catalogo-produtos.sqlite3-wal",
+                "trigo_pdv.sqlite3-journal",
+                "legacy.db-journal",
+                "config.ini",
+            ):
                 with self.subTest(name=name):
                     candidate = source / name
                     candidate.write_bytes(b"private runtime data")
