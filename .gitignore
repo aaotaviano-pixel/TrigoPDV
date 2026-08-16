@@ -59,6 +59,7 @@ CLAUDE.md
 *.pdf
 
 # Editores e sistema operacional
+.worktrees/
 .idea/
 .vscode/
 .DS_Store
