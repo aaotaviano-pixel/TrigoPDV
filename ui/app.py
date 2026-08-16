@@ -287,7 +287,14 @@ class PDVApplication(tk.Tk):
             return
         if self.sale_view and self.sale_view.winfo_exists():
             self.sale_view.pack_forget()
-        self.admin_view = AdminView(self, self.controller, self.current_user, self.back_to_sale)
+        self.admin_view = AdminView(
+            self,
+            self.controller,
+            self.current_user,
+            self.back_to_sale,
+            on_update_scheduled=self.destroy,
+            checkout_idle=lambda: not bool(self.sale_view and self.sale_view.cart),
+        )
         self.current_view = self.admin_view
         self.admin_view.pack(fill="both", expand=True)
 

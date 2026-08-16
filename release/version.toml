@@ -2,7 +2,7 @@
 version = "1.2.0"
 sequence = 3
 schema_target = 9
-pack_id = "TrigoDeMinas.TrigoPDV"
+pack_id = "TrigoDeMinas.TrigoPDV.V2"
 title = "TrigoPDV"
 channel = "stable"
 

@@ -9,6 +9,8 @@
 - Autenticidade: TUF com raiz offline 2-de-3 e chaves online separadas para
   targets, snapshot e timestamp.
 - Empacotamento/aplicação: Velopack 1.2.0, pacote completo sem delta.
+- Raiz do programa: `%LOCALAPPDATA%\TrigoDeMinas.TrigoPDV.V2`, distinta da
+  raiz Inno/CMD 1.1 e da raiz de dados `%LOCALAPPDATA%\TrigoPDV`.
 - Política offline-first: falha de internet nunca bloqueia login ou venda.
 
 O primeiro 1.2.0 precisa ser instalado pelo pacote confiável do pen drive. Uma
@@ -35,11 +37,14 @@ O operador não precisa de navegador, Python, Git ou conta do GitHub.
 2. Execute `python tools/render_release_metadata.py`.
 3. Rode testes, `compileall`, auditoria de dependências e o release gate.
 4. Faça merge na branch protegida `main`.
-5. No GitHub, execute manualmente o workflow **Publish authenticated update**
-   com canal `pilot`, rollout inicialmente pequeno e `mandatory=false`.
+5. No GitHub, execute o workflow **Publish authenticated update** com canal
+   `pilot`, rollout inicialmente pequeno e `mandatory=false`. A execução
+   agendada renova a validade dos metadados sem reutilizar versões TUF.
 6. O workflow recompila do zero, valida a fonte, cria o pacote Velopack, assina
    TUF, verifica com o cliente real e só então publica o site.
-7. Confirme o deployment do GitHub Pages e faça o ensaio em uma cópia do banco
+7. O workflow autentica e preserva todos os canais já publicados, incrementa
+   os contadores TUF e monta também o pacote USB com manifesto SHA-256.
+8. Confirme o deployment do GitHub Pages e faça o ensaio em uma cópia do banco
    antes de instalar no caixa.
 
 Nunca coloque chaves privadas, senha da cerimônia, banco, `config.ini` ou dados

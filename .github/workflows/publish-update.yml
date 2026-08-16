@@ -1,6 +1,8 @@
 name: Publish authenticated update
 
 on:
+  schedule:
+    - cron: "17 */12 * * *"
   workflow_dispatch:
     inputs:
       channel:
@@ -31,11 +33,20 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 45
+    environment:
+      name: github-pages
     steps:
       - name: Checkout protected source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Enforce protected immutable source
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -ne 'refs/heads/main') { throw 'Only protected main may publish updates.' }
+          if ((git rev-parse HEAD).Trim() -ne '${{ github.sha }}') { throw 'The checked out source is not the dispatched commit.' }
 
       - name: Python 3.13
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -67,15 +78,15 @@ jobs:
           TRIGOPDV_TUF_TARGETS_KEY: ${{ secrets.TRIGOPDV_TUF_TARGETS_KEY }}
           TRIGOPDV_TUF_SNAPSHOT_KEY: ${{ secrets.TRIGOPDV_TUF_SNAPSHOT_KEY }}
           TRIGOPDV_TUF_TIMESTAMP_KEY: ${{ secrets.TRIGOPDV_TUF_TIMESTAMP_KEY }}
-          UPDATE_CHANNEL: ${{ inputs.channel }}
-          UPDATE_ROLLOUT: ${{ inputs.rollout_percent }}
-          UPDATE_MANDATORY: ${{ inputs.mandatory }}
+          UPDATE_CHANNEL: ${{ inputs.channel || 'pilot' }}
+          UPDATE_ROLLOUT: ${{ inputs.rollout_percent || '100' }}
+          UPDATE_MANDATORY: ${{ inputs.mandatory || 'false' }}
         run: |
           $arguments = @(
             "tools/build_online_release.py",
             "--channel", $env:UPDATE_CHANNEL,
             "--rollout", $env:UPDATE_ROLLOUT,
-            "--seed", "${{ github.sha }}-${{ github.run_number }}"
+            "--seed", "trigopdv-$env:UPDATE_CHANNEL"
           )
           if ($env:UPDATE_MANDATORY -eq "true") { $arguments += "--mandatory" }
           python @arguments
@@ -87,6 +98,21 @@ jobs:
           path: _site
           if-no-files-found: error
           retention-days: 7
+
+      - name: Stage verified USB bootstrap
+        shell: pwsh
+        run: |
+          $setups = @(Get-ChildItem -LiteralPath release/velopack -Filter '*Setup*.exe' -File)
+          if ($setups.Count -ne 1) { throw 'Expected exactly one Velopack Setup.' }
+          python tools/stage_usb_installer.py --source TrigoPDV_Instalacao_PenDrive --setup $setups[0].FullName --output _usb_stage
+
+      - name: Upload verified USB bootstrap
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: trigopdv-usb-package
+          path: _usb_stage
+          if-no-files-found: error
+          retention-days: 14
 
   deploy:
     needs: build

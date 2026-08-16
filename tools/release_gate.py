@@ -98,18 +98,28 @@ def _source_gate() -> None:
         raise GateFailure("O catálogo somente de produtos diverge do manifesto.")
 
 
-def _authenticode_valid(path: Path) -> bool:
+def _authenticode_valid(path: Path, *, runner=subprocess.run) -> bool:
     if not path.is_file():
         return False
     command = (
         "$s=Get-AuthenticodeSignature -LiteralPath $args[0]; "
-        "[Console]::Out.Write($s.Status.ToString())"
+        "$code=$false; $time=$false; "
+        "if ($null -ne $s.SignerCertificate) { "
+        "foreach($e in $s.SignerCertificate.Extensions) { "
+        "if($e.Oid.Value -eq '2.5.29.37') { foreach($u in $e.EnhancedKeyUsages) { "
+        "if($u.Value -eq '1.3.6.1.5.5.7.3.3') { $code=$true } } } } }; "
+        "if ($null -ne $s.TimeStamperCertificate) { "
+        "foreach($e in $s.TimeStamperCertificate.Extensions) { "
+        "if($e.Oid.Value -eq '2.5.29.37') { foreach($u in $e.EnhancedKeyUsages) { "
+        "if($u.Value -eq '1.3.6.1.5.5.7.3.8') { $time=$true } } } } }; "
+        "if($s.Status.ToString() -eq 'Valid' -and $code -and $time) { "
+        "[Console]::Out.Write('ValidTimestamped') }"
     )
-    result = subprocess.run(
+    result = runner(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", command, str(path)],
         capture_output=True, text=True, check=False,
     )
-    return result.returncode == 0 and result.stdout.strip() == "Valid"
+    return result.returncode == 0 and result.stdout.strip() == "ValidTimestamped"
 
 
 def _production_gate() -> None:
@@ -131,8 +141,12 @@ def _production_gate() -> None:
     except Exception as exc:
         raise GateFailure("A raiz TUF não pôde ser validada.") from exc
     executable = ROOT / "dist" / "TrigoPDV" / "TrigoPDV.exe"
-    setup = ROOT / "installer" / "Output" / "TrigoPDV-Setup.exe"
-    if not _authenticode_valid(executable) or not _authenticode_valid(setup):
+    setup_candidates = sorted((ROOT / "release" / "velopack").glob("*Setup*.exe"))
+    if (
+        len(setup_candidates) != 1
+        or not _authenticode_valid(executable)
+        or not _authenticode_valid(setup_candidates[0])
+    ):
         raise GateFailure("Executável e instalador precisam de assinatura Authenticode válida.")
     tuf_metadata = ROOT / "release" / "tuf-repository" / "metadata"
     if not all((tuf_metadata / name).is_file() for name in ("root.json", "timestamp.json", "snapshot.json", "targets.json")):

@@ -259,14 +259,47 @@ class UpdateCoordinator:
 
     def resume_pending_update(self) -> bool:
         state = self.state_store.load()
+        if RELEASE.sequence < state.current_sequence:
+            raise UpdateCoordinatorError("A versão instalada não pode retroceder.")
+        if (
+            RELEASE.sequence == state.current_sequence
+            and state.current_version
+            and RELEASE.version != state.current_version
+        ):
+            raise UpdateCoordinatorError("A sequência local pertence a outra versão.")
+        if state.phase == UpdatePhase.DOWNLOADING:
+            self.state_store.save(replace(
+                state,
+                phase=UpdatePhase.FAILED,
+                error_code="DOWNLOAD_INTERRUPTED",
+            ))
+            return False
+        if state.phase == UpdatePhase.PREPARING:
+            # PREPARING is persisted before the backup. APPLY_PENDING is only
+            # persisted after the verified backup and before Velopack starts,
+            # so a crash here is safe to retry from the authenticated bundle.
+            self.state_store.save(replace(
+                state,
+                phase=UpdatePhase.DOWNLOADED,
+                error_code="",
+            ))
+            return False
         if state.phase not in {UpdatePhase.APPLY_PENDING, UpdatePhase.HEALTH_CHECK}:
             if state.phase == UpdatePhase.FAILED:
                 blocking = state.error_code == "VERSION_MISMATCH" or state.error_code.startswith("HEALTH_")
                 if blocking:
                     raise UpdateCoordinatorError("A atualização anterior requer revisão do administrador.")
+            if (
+                state.current_sequence < RELEASE.sequence
+                and state.target_sequence <= RELEASE.sequence
+            ):
+                self.state_store.save(UpdateState(
+                    phase=UpdatePhase.IDLE,
+                    current_version=RELEASE.version,
+                    current_sequence=RELEASE.sequence,
+                    last_check_at=state.last_check_at,
+                ))
             return False
-        if RELEASE.sequence < state.current_sequence:
-            raise UpdateCoordinatorError("A versão instalada não pode retroceder.")
         if RELEASE.sequence < state.target_sequence:
             if not state.bundle_directory or state.attempts >= 3:
                 self.state_store.save(replace(state, phase=UpdatePhase.FAILED, error_code="APPLY_RETRY"))
@@ -278,7 +311,11 @@ class UpdateCoordinator:
             except Exception as exc:
                 raise UpdateCoordinatorError("A atualização pendente não pôde ser retomada.") from exc
             raise UpdateRestartScheduled("A atualização será aplicada após o encerramento do TrigoPDV.")
-        if RELEASE.sequence != state.target_sequence or RELEASE.version != state.target_version:
+        if (
+            RELEASE.sequence != state.target_sequence
+            or RELEASE.version != state.target_version
+            or RELEASE.schema_target != state.target_schema
+        ):
             self.state_store.save(replace(state, phase=UpdatePhase.FAILED, error_code="VERSION_MISMATCH"))
             raise UpdateCoordinatorError("A versão reiniciada não corresponde ao pacote autorizado.")
         checking = replace(state, phase=UpdatePhase.HEALTH_CHECK)

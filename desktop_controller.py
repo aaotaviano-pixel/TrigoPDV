@@ -355,13 +355,14 @@ class DesktopController:
             event_logger=UpdateEventLogger(self.settings.data_directory / "updates" / "events.jsonl"),
         )
 
-    def admin_update_status(self) -> dict[str, Any]:
+    def admin_update_status(self, checkout_idle: bool = True) -> dict[str, Any]:
         self._require_admin()
         with self._update_lock:
             coordinator = self._update_coordinator(require_repository=False)
             state = coordinator.state_store.load()
         enabled = bool(getattr(self.settings, "updates_enabled", False))
         root_exists = (Path(self.settings.resource_directory) / "updates" / "trusted" / "root.json").is_file()
+        cash_closed = self.service.get_global_open_cash() is None
         labels = {
             "IDLE": "Sistema atualizado", "AVAILABLE": "Atualização disponível",
             "DOWNLOADING": "Baixando atualização", "DOWNLOADED": "Pronta para instalar",
@@ -375,7 +376,9 @@ class DesktopController:
             "channel": getattr(self.settings, "update_channel", "stable"),
             "current_version": state.current_version, "target_version": state.target_version,
             "phase": state.phase.value, "status": labels.get(state.phase.value, state.phase.value),
-            "can_apply": state.phase.value == "DOWNLOADED", "configured": enabled and root_exists,
+            "can_apply": state.phase.value == "DOWNLOADED" and bool(checkout_idle) and cash_closed,
+            "checkout_idle": bool(checkout_idle), "cash_closed": cash_closed,
+            "configured": enabled and root_exists,
         }
 
     def background_check_for_update(self) -> dict[str, Any]:
@@ -420,6 +423,7 @@ class DesktopController:
                 state_store=coordinator.state_store,
                 check_and_download=self.background_check_for_update,
                 interval_hours=int(getattr(self.settings, "update_check_interval_hours", 6)),
+                operation_lock=self._update_lock,
             )
             return self._update_monitor.start()
 
@@ -427,8 +431,10 @@ class DesktopController:
         self._require_admin()
         return self.background_check_for_update()
 
-    def admin_apply_downloaded_update(self) -> dict[str, Any]:
+    def admin_apply_downloaded_update(self, checkout_idle: bool = True) -> dict[str, Any]:
         self._require_admin()
+        if not checkout_idle:
+            raise ValidationError("Finalize ou descarte a venda em andamento antes de atualizar.")
         with self._update_lock:
             coordinator = self._update_coordinator(require_repository=False)
             offer = self._pending_update_offer
@@ -442,7 +448,7 @@ class DesktopController:
                 raise ValidationError("O pacote baixado não corresponde à atualização selecionada.")
             coordinator.prepare_apply(
                 offer, state.bundle_directory,
-                safe_to_apply=lambda: self.service.get_global_open_cash() is None,
+                safe_to_apply=lambda: bool(checkout_idle) and self.service.get_global_open_cash() is None,
             )
         return {"started": True, "message": "Atualização preparada; o TrigoPDV será reiniciado."}
 

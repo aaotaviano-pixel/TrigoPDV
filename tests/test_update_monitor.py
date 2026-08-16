@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from desktop_controller import DesktopController
+from services.errors import ValidationError
 from updates.models import UpdatePhase
 from updates.monitor import UpdateMonitor
 from updates.state import UpdateState, UpdateStateStore
@@ -108,6 +109,71 @@ class UpdateMonitorTestCase(unittest.TestCase):
         coordinator.check_now.assert_called_once()
         coordinator.download.assert_called_once_with(offer)
         self.assertIs(controller._pending_update_offer, offer)
+
+    def test_timestamp_write_cannot_overwrite_concurrent_apply_pending_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            base_store = UpdateStateStore(path)
+            base_store.save(UpdateState())
+            latest_loaded = threading.Event()
+            release_monitor = threading.Event()
+
+            class InterleavingStore(UpdateStateStore):
+                def __init__(self, state_path):
+                    super().__init__(state_path)
+                    self.loads = 0
+
+                def load(self):
+                    state = super().load()
+                    self.loads += 1
+                    if self.loads == 2:
+                        latest_loaded.set()
+                        release_monitor.wait(2)
+                    return state
+
+            store = InterleavingStore(path)
+            shared_lock = threading.RLock()
+
+            def download() -> None:
+                store.save(UpdateState(phase=UpdatePhase.DOWNLOADED, target_sequence=4))
+
+            monitor = UpdateMonitor(
+                state_store=store,
+                check_and_download=download,
+                interval_hours=6,
+                operation_lock=shared_lock,
+            )
+            monitor_thread = threading.Thread(target=monitor.run_due_check)
+            monitor_thread.start()
+            self.assertTrue(latest_loaded.wait(1))
+
+            def apply() -> None:
+                with shared_lock:
+                    current = base_store.load()
+                    base_store.save(UpdateState(
+                        phase=UpdatePhase.APPLY_PENDING,
+                        target_sequence=current.target_sequence,
+                        last_check_at=current.last_check_at,
+                    ))
+
+            apply_thread = threading.Thread(target=apply)
+            apply_thread.start()
+            release_monitor.set()
+            monitor_thread.join(2)
+            apply_thread.join(2)
+
+            self.assertEqual(base_store.load().phase, UpdatePhase.APPLY_PENDING)
+
+    def test_controller_refuses_apply_while_checkout_has_an_in_flight_cart(self) -> None:
+        controller = object.__new__(DesktopController)
+        controller._require_admin = lambda: {"perfil": "admin"}
+        controller._update_lock = threading.RLock()
+        controller._update_coordinator = Mock(side_effect=AssertionError("must fail before update I/O"))
+
+        with self.assertRaisesRegex(ValidationError, "venda em andamento"):
+            controller.admin_apply_downloaded_update(checkout_idle=False)
+
+        controller._update_coordinator.assert_not_called()
 
 
 if __name__ == "__main__":

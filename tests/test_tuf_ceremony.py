@@ -89,21 +89,69 @@ class TufCeremonyTestCase(unittest.TestCase):
 
     def test_windows_credential_blob_uses_unicode_and_is_returned_as_bytes(self) -> None:
         captured = {}
+        class MissingCredentialError(RuntimeError):
+            winerror = 1168
+
         fake = types.SimpleNamespace(
             CRED_TYPE_GENERIC=1,
             CRED_PERSIST_LOCAL_MACHINE=2,
-            CredRead=lambda *args: (_ for _ in ()).throw(RuntimeError("missing")),
+            CredRead=lambda *args: (_ for _ in ()).throw(MissingCredentialError("missing")),
             CredWrite=lambda record, flags: captured.update(record=record, flags=flags),
         )
         with patch.dict("sys.modules", {"win32cred": fake}), patch(
             "tools.tuf_ceremony.secrets.token_urlsafe",
             return_value="portable-generated-passphrase-value",
         ):
-            value = _credential_passphrase()
+            value = _credential_passphrase(create_if_missing=True)
 
         self.assertEqual(value, b"portable-generated-passphrase-value")
         self.assertEqual(captured["record"]["TargetName"], CREDENTIAL_TARGET)
         self.assertIsInstance(captured["record"]["CredentialBlob"], str)
+
+    def test_credential_read_failure_never_overwrites_existing_custody(self) -> None:
+        for failure in (RuntimeError("credential service unavailable"),):
+            writes = []
+            fake = types.SimpleNamespace(
+                CRED_TYPE_GENERIC=1,
+                CRED_PERSIST_LOCAL_MACHINE=2,
+                CredRead=lambda *args, failure=failure: (_ for _ in ()).throw(failure),
+                CredWrite=lambda *args: writes.append(args),
+            )
+            with self.subTest(failure=type(failure).__name__), patch.dict(
+                "sys.modules", {"win32cred": fake}
+            ):
+                with self.assertRaisesRegex(CeremonyError, "Gerenciador de Credenciais"):
+                    _credential_passphrase(create_if_missing=True)
+            self.assertEqual(writes, [])
+
+    def test_invalid_existing_credential_is_rejected_without_overwrite(self) -> None:
+        writes = []
+        fake = types.SimpleNamespace(
+            CRED_TYPE_GENERIC=1,
+            CRED_PERSIST_LOCAL_MACHINE=2,
+            CredRead=lambda *args: {"CredentialBlob": "short"},
+            CredWrite=lambda *args: writes.append(args),
+        )
+        with patch.dict("sys.modules", {"win32cred": fake}):
+            with self.assertRaisesRegex(CeremonyError, "inválida"):
+                _credential_passphrase(create_if_missing=True)
+        self.assertEqual(writes, [])
+
+    def test_missing_credential_is_not_created_during_read_only_verification(self) -> None:
+        class MissingCredentialError(RuntimeError):
+            winerror = 1168
+
+        writes = []
+        fake = types.SimpleNamespace(
+            CRED_TYPE_GENERIC=1,
+            CRED_PERSIST_LOCAL_MACHINE=2,
+            CredRead=lambda *args: (_ for _ in ()).throw(MissingCredentialError("missing")),
+            CredWrite=lambda *args: writes.append(args),
+        )
+        with patch.dict("sys.modules", {"win32cred": fake}):
+            with self.assertRaisesRegex(CeremonyError, "não foi encontrada"):
+                _credential_passphrase()
+        self.assertEqual(writes, [])
 
     def test_direct_cli_resolves_project_imports_without_writing_inside_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

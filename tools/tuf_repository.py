@@ -288,6 +288,7 @@ def verify_repository(
     bootstrap_root: bytes,
     channel: str,
     reference_time: datetime | None = None,
+    client_directory: str | Path | None = None,
 ) -> dict:
     """Usa o cliente TUF real e baixa manifesto+artefatos para temporários."""
 
@@ -306,9 +307,9 @@ def verify_repository(
             raise
         except Exception as exc:
             raise TufPublishError("Os metadados do repositório são inválidos.") from exc
-    try:
-        with tempfile.TemporaryDirectory(dir=root.parent) as directory:
-            temporary = Path(directory)
+    def _verify(temporary: Path) -> dict:
+        try:
+            temporary.mkdir(parents=True, exist_ok=True)
             updater = WindowsSafeUpdater(
                 metadata_dir=str(temporary / "metadata"),
                 metadata_base_url="https://local.invalid/metadata/",
@@ -336,7 +337,12 @@ def verify_repository(
                     raise ValueError("hash mismatch")
                 updater.download_target(target_info)
             return values
-    except TufPublishError:
-        raise
-    except Exception as exc:
-        raise TufPublishError("O repositório TUF não passou na verificação.") from exc
+        except TufPublishError:
+            raise
+        except Exception as exc:
+            raise TufPublishError("O repositório TUF não passou na verificação.") from exc
+
+    if client_directory is not None:
+        return _verify(Path(client_directory).resolve())
+    with tempfile.TemporaryDirectory(dir=root.parent) as directory:
+        return _verify(Path(directory))

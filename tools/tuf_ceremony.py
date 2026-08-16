@@ -190,7 +190,7 @@ def verify_ceremony_custody(result: CeremonyResult, *, passphrase: bytes) -> Non
         raise CeremonyError("A custódia das chaves TUF não pôde ser comprovada.") from exc
 
 
-def _credential_passphrase() -> bytes:
+def _credential_passphrase(*, create_if_missing: bool = False) -> bytes:
     configured = os.environ.get("TRIGOPDV_TUF_ROOT_PASSPHRASE", "")
     if configured:
         value = configured.encode("utf-8")
@@ -199,15 +199,31 @@ def _credential_passphrase() -> bytes:
         return value
     try:
         import win32cred
-
+    except Exception as exc:
+        raise CeremonyError(
+            "Não foi possível acessar o Gerenciador de Credenciais do Windows."
+        ) from exc
+    try:
+        record = win32cred.CredRead(CREDENTIAL_TARGET, win32cred.CRED_TYPE_GENERIC)
+    except Exception as exc:
+        if getattr(exc, "winerror", None) != 1168:
+            raise CeremonyError(
+                "Não foi possível ler o Gerenciador de Credenciais do Windows."
+            ) from exc
+        if not create_if_missing:
+            raise CeremonyError(
+                "A frase de proteção não foi encontrada no Gerenciador de Credenciais."
+            ) from exc
+    else:
         try:
-            record = win32cred.CredRead(CREDENTIAL_TARGET, win32cred.CRED_TYPE_GENERIC)
             blob = record["CredentialBlob"]
             value = blob.encode("utf-8") if isinstance(blob, str) else bytes(blob)
-            if len(value) >= 24:
-                return value
-        except Exception:
-            pass
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CeremonyError("A frase protegida existente é inválida.") from exc
+        if len(value) < 24:
+            raise CeremonyError("A frase protegida existente é inválida.")
+        return value
+    try:
         value_text = secrets.token_urlsafe(48)
         value = value_text.encode("ascii")
         win32cred.CredWrite({
@@ -253,7 +269,7 @@ def main() -> int:
     parser.add_argument("--github-repository", default="")
     args = parser.parse_args()
     try:
-        passphrase = _credential_passphrase()
+        passphrase = _credential_passphrase(create_if_missing=True)
         result = create_ceremony(
             key_directory=args.key_directory,
             public_root_path=args.public_root,

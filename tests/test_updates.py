@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 import hashlib
@@ -13,6 +14,7 @@ from config.version import RELEASE
 from updates.health import run_health_check
 from updates.models import TrustedArtifact, UpdateOffer, UpdatePhase, UpdatePolicy, cohort_eligible
 from updates.state import UpdateState, UpdateStateError, UpdateStateStore
+from updates.startup import startup_preflight
 from updates.velopack_adapter import run_velopack_startup
 from updates.event_log import UpdateEventLogger
 from updates.repository import TufRepository, UpdateRepositoryError
@@ -54,7 +56,7 @@ class UpdatePolicyTestCase(unittest.TestCase):
             with self.assertRaises(ConfigurationError):
                 load_settings(path)
 
-    def test_legacy_disabled_defaults_are_upgraded_but_explicit_disable_is_preserved(self) -> None:
+    def test_any_persisted_disabled_configuration_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.ini"
             content = (ROOT / "config.ini.example").read_text(encoding="utf-8")
@@ -66,12 +68,9 @@ class UpdatePolicyTestCase(unittest.TestCase):
             )
             path.write_text(legacy, encoding="utf-8")
             migrated = load_settings(path)
-            self.assertTrue(migrated.updates_enabled)
-            self.assertEqual(migrated.update_channel, "pilot")
-            self.assertEqual(
-                migrated.update_base_url,
-                "https://aaotaviano-pixel.github.io/TrigoPDV/updates",
-            )
+            self.assertFalse(migrated.updates_enabled)
+            self.assertEqual(migrated.update_channel, "stable")
+            self.assertEqual(migrated.update_base_url, "")
 
             explicit = legacy.replace(
                 "base_url =",
@@ -179,7 +178,7 @@ class UpdateHealthTestCase(unittest.TestCase):
             self.assertTrue(result.healthy)
             self.assertEqual(path.read_bytes(), before)
 
-    def test_offer_rejects_wrong_pack_schema_or_sequence(self) -> None:
+    def test_offer_accepts_future_additive_schema_but_rejects_rollback_identity_or_sequence(self) -> None:
         policy = UpdatePolicy(enabled=True, channel="stable", base_url="https://updates.example")
         valid = UpdateOffer(
             version="1.2.1", sequence=RELEASE.sequence + 1, schema_target=RELEASE.schema_target,
@@ -187,8 +186,11 @@ class UpdateHealthTestCase(unittest.TestCase):
             rollout_seed="signed", manifest_target="bundle.json",
         )
         valid.validate(policy, current_sequence=RELEASE.sequence)
+        UpdateOffer(**(valid.__dict__ | {"schema_target": RELEASE.schema_target + 1})).validate(
+            policy, current_sequence=RELEASE.sequence
+        )
         for changes in (
-            {"pack_id": "Other.App"}, {"schema_target": RELEASE.schema_target + 1},
+            {"pack_id": "Other.App"}, {"schema_target": RELEASE.schema_target - 1},
             {"sequence": RELEASE.sequence}, {"channel": "beta"},
         ):
             values = valid.__dict__ | changes
@@ -280,6 +282,115 @@ class TufRepositoryTestCase(unittest.TestCase):
 
 
 class UpdateCoordinatorTestCase(unittest.TestCase):
+    def test_new_binary_migrates_pending_database_before_health_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = root / "config.ini"
+            config_path.write_text(
+                (ROOT / "config.ini.example").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            loaded = load_settings(config_path)
+            database_path = root / "data" / "pdv.sqlite3"
+            Database(database_path).initialize()
+            with Database(database_path).transaction(write=True) as connection:
+                connection.execute(
+                    "UPDATE schema_meta SET valor = '8' WHERE chave = 'schema_version'"
+                )
+            state_path = root / "data" / "updates" / "state.json"
+            UpdateStateStore(state_path).save(UpdateState(
+                phase=UpdatePhase.APPLY_PENDING,
+                current_version="1.1.0",
+                current_sequence=2,
+                target_version=RELEASE.version,
+                target_sequence=RELEASE.sequence,
+                target_schema=RELEASE.schema_target,
+                attempts=1,
+            ))
+            settings = replace(
+                loaded,
+                database_path=database_path,
+                backup_path=root / "backups",
+                update_state_path=state_path,
+                updates_enabled=False,
+                update_base_url="",
+                resource_directory=ROOT,
+            )
+
+            startup_preflight(settings)
+
+            with Database(database_path).transaction() as connection:
+                version = int(connection.execute(
+                    "SELECT valor FROM schema_meta WHERE chave = 'schema_version'"
+                ).fetchone()[0])
+            self.assertEqual(version, RELEASE.schema_target)
+            self.assertEqual(UpdateStateStore(state_path).load().phase, UpdatePhase.IDLE)
+
+    def test_startup_recovers_interrupted_download_prepare_and_manual_bootstrap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def make(name: str):
+                store = UpdateStateStore(root / f"{name}.json")
+                coordinator = UpdateCoordinator(
+                    policy=UpdatePolicy(),
+                    state_store=store,
+                    database_path=root / "pdv.sqlite3",
+                    backup_directory=root / "backups",
+                    adapter=Mock(),
+                )
+                return store, coordinator
+
+            store, coordinator = make("downloading")
+            store.save(UpdateState(
+                phase=UpdatePhase.DOWNLOADING,
+                current_version=RELEASE.version,
+                current_sequence=RELEASE.sequence,
+                target_version="1.2.1",
+                target_sequence=RELEASE.sequence + 1,
+            ))
+            self.assertFalse(coordinator.resume_pending_update())
+            interrupted = store.load()
+            self.assertEqual(interrupted.phase, UpdatePhase.FAILED)
+            self.assertEqual(interrupted.error_code, "DOWNLOAD_INTERRUPTED")
+
+            store, coordinator = make("preparing")
+            store.save(UpdateState(
+                phase=UpdatePhase.PREPARING,
+                current_version=RELEASE.version,
+                current_sequence=RELEASE.sequence,
+                target_version="1.2.1",
+                target_sequence=RELEASE.sequence + 1,
+                target_schema=RELEASE.schema_target,
+                bundle_directory="C:/authenticated/bundle",
+                offer_json="signed-offer-placeholder",
+            ))
+            self.assertFalse(coordinator.resume_pending_update())
+            self.assertEqual(store.load().phase, UpdatePhase.DOWNLOADED)
+
+            store, coordinator = make("bootstrap")
+            store.save(UpdateState(
+                phase=UpdatePhase.FAILED,
+                current_version="1.1.0",
+                current_sequence=2,
+                target_version=RELEASE.version,
+                target_sequence=RELEASE.sequence,
+                error_code="DOWNLOAD",
+            ))
+            self.assertFalse(coordinator.resume_pending_update())
+            reconciled = store.load()
+            self.assertEqual(reconciled.phase, UpdatePhase.IDLE)
+            self.assertEqual(reconciled.current_version, RELEASE.version)
+            self.assertEqual(reconciled.current_sequence, RELEASE.sequence)
+
+            store, coordinator = make("future")
+            store.save(UpdateState(
+                current_version="9.9.9",
+                current_sequence=RELEASE.sequence + 1,
+            ))
+            with self.assertRaisesRegex(UpdateCoordinatorError, "retroceder"):
+                coordinator.resume_pending_update()
+
     def test_bootstrap_upgrade_downloads_backs_up_and_reaches_healthy_current_state(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
             root = Path(directory)

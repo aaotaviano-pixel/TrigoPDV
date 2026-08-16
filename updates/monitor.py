@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from threading import Event, Lock, Thread, current_thread
+from threading import Event, Lock, RLock, Thread, current_thread
 from typing import Callable
 
 from .state import UpdateStateStore
@@ -25,11 +25,13 @@ class UpdateMonitor:
         check_and_download: Callable[[], object],
         interval_hours: int,
         clock: Callable[[], datetime] | None = None,
+        operation_lock=None,
     ) -> None:
         self.state_store = state_store
         self.check_and_download = check_and_download
         self.interval = timedelta(hours=max(1, int(interval_hours)))
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self._operation_lock = operation_lock or RLock()
         self._stop = Event()
         self._lifecycle_lock = Lock()
         self._thread: Thread | None = None
@@ -46,6 +48,12 @@ class UpdateMonitor:
 
     def run_due_check(self) -> bool:
         """Run one due check and return whether it completed successfully."""
+
+        with self._operation_lock:
+            return self._run_due_check_locked()
+
+    def _run_due_check_locked(self) -> bool:
+        """Keep the check and its timestamp in the coordinator state critical section."""
 
         now = self.clock().astimezone(timezone.utc)
         try:

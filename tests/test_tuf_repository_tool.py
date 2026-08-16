@@ -42,7 +42,7 @@ class TufRepositoryToolTestCase(unittest.TestCase):
             "version": "1.1.1",
             "sequence": sequence,
             "schema_target": 9,
-            "pack_id": "TrigoDeMinas.TrigoPDV",
+            "pack_id": "TrigoDeMinas.TrigoPDV.V2",
             "channel": "pilot",
             "rollout_percent": 100,
             "rollout_seed": "public-seed-20260816",

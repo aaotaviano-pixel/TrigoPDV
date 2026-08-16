@@ -197,21 +197,9 @@ def load_settings(config_path: Path | str = DEFAULT_CONFIG_PATH, *, create_if_mi
         raise ConfigurationError("As configurações de atualização são inválidas.") from exc
     update_channel = _get(parser, "updates", "channel", "stable").strip().lower() or "stable"
     update_base_url = _get(parser, "updates", "base_url", "").strip()
-    # Instalações anteriores à raiz TUF vinham com o trio legado
-    # false/stable/URL vazia e não tinham uma tela para optar por esse estado.
-    # A presença da raiz pública no binário de bootstrap ativa o piloto apenas
-    # para esse caso exato. Uma configuração explícita com URL continua sendo
-    # respeitada, inclusive quando desativada.
-    legacy_update_defaults = (
-        not updates_enabled
-        and update_channel == "stable"
-        and not update_base_url
-        and (PROJECT_ROOT / "updates" / "trusted" / "root.json").is_file()
-    )
-    if legacy_update_defaults:
-        updates_enabled = True
-        update_channel = "pilot"
-        update_base_url = PILOT_UPDATE_URL
+    # Nunca transforme `enabled = false` em consentimento implícito. Instalações
+    # novas recebem o piloto pelo arquivo de exemplo; uma escolha persistida de
+    # desativação continua desativada depois de atualizar o executável.
     if update_channel not in {"internal", "pilot", "stable"}:
         raise ConfigurationError("O canal de atualização deve ser internal, pilot ou stable.")
     if not 1 <= update_check_interval_hours <= 168:

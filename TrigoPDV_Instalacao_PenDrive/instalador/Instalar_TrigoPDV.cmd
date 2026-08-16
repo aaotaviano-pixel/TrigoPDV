@@ -5,11 +5,18 @@ REM que as proximas versoes possam ser aplicadas online com seguranca.
 setlocal EnableExtensions
 
 set "SETUP=%~dp0..\TrigoPDV-Setup.exe"
+set "MIGRATION=%~dp0Migrar_Instalacao_Legada.ps1"
 set "TRIGOPDV_PACKAGE_EXE=%SETUP%"
 
 if not exist "%SETUP%" (
     echo ERRO: nao encontrei ..\TrigoPDV-Setup.exe.
     echo Mantenha a pasta do pacote completa no pen drive e tente novamente.
+    pause
+    exit /b 1
+)
+
+if not exist "%MIGRATION%" (
+    echo ERRO: nao encontrei o assistente de migracao do instalador.
     pause
     exit /b 1
 )
@@ -29,7 +36,7 @@ echo ==================================================
 echo.
 echo Feche o TrigoPDV se ele ja estiver aberto antes de continuar.
 
-start "TrigoPDV Setup" /wait "%SETUP%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%MIGRATION%" -SetupPath "%SETUP%"
 if errorlevel 1 (
     echo ERRO: o instalador nao concluiu a operacao.
     pause

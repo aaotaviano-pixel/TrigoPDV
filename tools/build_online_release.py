@@ -5,14 +5,18 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import sys
 from typing import Callable, Mapping, Sequence
+from urllib.parse import urlsplit
 from uuid import uuid4
 
+import requests
 from securesystemslib.signer import Signer
 
 
@@ -20,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from config.settings import PILOT_UPDATE_URL
 from config.version import RELEASE
 from tools.create_update_manifest import create_manifest
 from tools.tuf_ceremony import SECRET_NAMES, signer_from_private_pem
@@ -34,6 +39,156 @@ class OnlineReleaseError(RuntimeError):
 class OnlineRepositoryResult:
     repository_root: Path
     write_order: tuple[str, ...]
+
+
+def _remote_bytes(
+    base_url: str,
+    *,
+    relative: str,
+    maximum: int,
+    request_get: Callable | None = None,
+) -> bytes | None:
+    """Download one repository object without redirects or unbounded reads."""
+
+    getter = request_get or requests.get
+    url = str(base_url).rstrip("/") + "/" + relative
+    try:
+        response = getter(
+            url,
+            timeout=(3.05, 10.0),
+            allow_redirects=False,
+            stream=True,
+        )
+    except requests.RequestException as exc:
+        raise OnlineReleaseError(
+            "Não foi possível consultar a sequência TUF já publicada."
+        ) from exc
+    try:
+        if int(response.status_code) == 404:
+            return None
+        if int(response.status_code) != 200:
+            raise OnlineReleaseError("O repositório remoto recusou a leitura autenticada.")
+        declared = response.headers.get("Content-Length")
+        if declared is not None and (int(declared) < 0 or int(declared) > maximum):
+            raise OnlineReleaseError("Um arquivo remoto excede o limite permitido.")
+        payload = bytearray()
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if chunk:
+                payload.extend(chunk)
+            if len(payload) > maximum:
+                raise OnlineReleaseError("Um arquivo remoto excede o limite permitido.")
+        return bytes(payload)
+    finally:
+        response.close()
+
+
+def _matches_metadata(data: bytes, expected) -> bool:
+    hashes = getattr(expected, "hashes", {})
+    return (
+        int(getattr(expected, "length", -1)) == len(data)
+        and str(hashes.get("sha256", "")).lower() == hashlib.sha256(data).hexdigest()
+    )
+
+
+def download_authenticated_repository(
+    base_url: str,
+    destination: str | Path,
+    *,
+    bootstrap_root: bytes,
+    request_get: Callable | None = None,
+) -> Path | None:
+    """Mirror the current Pages tree only after validating its full TUF chain.
+
+    Expired online metadata remains usable only as an authenticated predecessor
+    for a freshness refresh: it is never handed to the PDV client as current.
+    """
+
+    parsed = urlsplit(str(base_url))
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise OnlineReleaseError("O endereço do repositório anterior é inválido.")
+    output = Path(destination).resolve()
+    if output.exists():
+        raise OnlineReleaseError("A pasta do repositório anterior precisa estar vazia.")
+    from tuf.api.metadata import Metadata, Root, Snapshot, Targets, Timestamp
+
+    try:
+        root = Metadata.from_bytes(bytes(bootstrap_root))
+        if not isinstance(root.signed, Root) or root.signed.is_expired():
+            raise ValueError("invalid root")
+        root.verify_delegate("root", root)
+        timestamp_bytes = _remote_bytes(
+            base_url, relative="metadata/timestamp.json", maximum=512_000,
+            request_get=request_get,
+        )
+        if timestamp_bytes is None:
+            return None
+        timestamp = Metadata.from_bytes(timestamp_bytes)
+        if not isinstance(timestamp.signed, Timestamp):
+            raise ValueError("not timestamp")
+        root.verify_delegate("timestamp", timestamp)
+        snapshot_bytes = _remote_bytes(
+            base_url, relative="metadata/snapshot.json", maximum=512_000,
+            request_get=request_get,
+        )
+        if snapshot_bytes is None or not _matches_metadata(
+            snapshot_bytes, timestamp.signed.snapshot_meta
+        ):
+            raise ValueError("snapshot mismatch")
+        snapshot = Metadata.from_bytes(snapshot_bytes)
+        if not isinstance(snapshot.signed, Snapshot):
+            raise ValueError("not snapshot")
+        root.verify_delegate("snapshot", snapshot)
+        targets_meta = snapshot.signed.meta.get("targets.json")
+        targets_bytes = _remote_bytes(
+            base_url, relative="metadata/targets.json", maximum=512_000,
+            request_get=request_get,
+        )
+        if targets_meta is None or targets_bytes is None or not _matches_metadata(
+            targets_bytes, targets_meta
+        ):
+            raise ValueError("targets mismatch")
+        targets = Metadata.from_bytes(targets_bytes)
+        if not isinstance(targets.signed, Targets):
+            raise ValueError("not targets")
+        root.verify_delegate("targets", targets)
+
+        staging = output.parent / f".{output.name}.{uuid4().hex}.download"
+        staging.mkdir(parents=True, exist_ok=False)
+        try:
+            metadata_dir = staging / "metadata"
+            metadata_dir.mkdir()
+            (metadata_dir / "root.json").write_bytes(bytes(bootstrap_root))
+            (metadata_dir / f"{root.signed.version}.root.json").write_bytes(bytes(bootstrap_root))
+            (metadata_dir / "timestamp.json").write_bytes(timestamp_bytes)
+            (metadata_dir / "snapshot.json").write_bytes(snapshot_bytes)
+            (metadata_dir / "targets.json").write_bytes(targets_bytes)
+            for relative, target in targets.signed.targets.items():
+                path = PurePosixPath(relative)
+                if path.is_absolute() or ".." in path.parts or "\\" in relative or ":" in relative:
+                    raise ValueError("unsafe target")
+                maximum = int(target.length)
+                if maximum < 0 or maximum > 1_000_000_000:
+                    raise ValueError("target too large")
+                payload = _remote_bytes(
+                    base_url, relative="targets/" + relative, maximum=maximum,
+                    request_get=request_get,
+                )
+                if payload is None or not _matches_metadata(payload, target):
+                    raise ValueError("target mismatch")
+                local = staging / "targets" / Path(*path.parts)
+                local.parent.mkdir(parents=True, exist_ok=True)
+                local.write_bytes(payload)
+            os.replace(staging, output)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+        return output
+    except OnlineReleaseError:
+        raise
+    except Exception as exc:
+        raise OnlineReleaseError(
+            "O repositório remoto não pôde ser autenticado integralmente."
+        ) from exc
 
 
 def velopack_pack_command(
@@ -97,6 +252,7 @@ def prepare_online_repository(
     role_signers: Mapping[str, Signer],
     signed_binaries: Sequence[str | Path] = (),
     authenticode_checker: Callable[[Path], bool] | None = None,
+    previous_repository: str | Path | None = None,
     reference_time: datetime | None = None,
 ) -> OnlineRepositoryResult:
     """Gera `site/updates` e a verifica com o cliente real antes de retornar."""
@@ -117,6 +273,41 @@ def prepare_online_repository(
     workspace = site.parent / f".{site.name}.{uuid4().hex}.release"
     try:
         unsigned = workspace / "unsigned"
+        previous = Path(previous_repository).resolve() if previous_repository is not None else None
+        metadata_version = 1
+        if previous is not None:
+            previous_targets = previous / "targets"
+            if not previous_targets.is_dir():
+                raise OnlineReleaseError("O repositório anterior autenticado não contém targets.")
+            shutil.copytree(previous_targets, unsigned / "targets")
+            from tuf.api.metadata import Metadata, Timestamp
+
+            timestamp = Metadata.from_file(previous / "metadata" / "timestamp.json")
+            if not isinstance(timestamp.signed, Timestamp):
+                raise OnlineReleaseError("O timestamp TUF anterior é inválido.")
+            metadata_version = int(timestamp.signed.version) + 1
+            previous_manifest = previous_targets / "channels" / channel / "manifest.json"
+            if previous_manifest.is_file():
+                try:
+                    old = json.loads(previous_manifest.read_text(encoding="utf-8"))
+                    old_sequence = int(old["sequence"])
+                    old_rollout = int(old["rollout_percent"])
+                except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise OnlineReleaseError("O manifesto anterior autenticado é inválido.") from exc
+                if old_sequence > RELEASE.sequence:
+                    raise OnlineReleaseError("A publicação não pode retroceder o canal selecionado.")
+                if old_sequence == RELEASE.sequence:
+                    if (
+                        str(old.get("version")) != RELEASE.version
+                        or str(old.get("pack_id")) != RELEASE.pack_id
+                        or int(old.get("schema_target", -1)) != RELEASE.schema_target
+                        or str(old.get("channel")) != channel
+                    ):
+                        raise OnlineReleaseError("A sequência existente pertence a outra release.")
+                    if str(old.get("rollout_seed")) != str(rollout_seed):
+                        raise OnlineReleaseError("A expansão de rollout deve preservar a coorte assinada.")
+                    if int(rollout_percent) < old_rollout or (bool(old.get("mandatory")) and not mandatory):
+                        raise OnlineReleaseError("A republicação não pode enfraquecer a política já assinada.")
         create_manifest(
             clean_artifacts,
             unsigned,
@@ -130,11 +321,12 @@ def prepare_online_repository(
             site / "updates",
             bootstrap_root=bytes(bootstrap_root),
             role_signers=role_signers,
-            metadata_version=RELEASE.sequence,
+            metadata_version=metadata_version,
             targets_expires=now + timedelta(days=90),
             snapshot_expires=now + timedelta(days=14),
             timestamp_expires=now + timedelta(days=2),
             reference_time=now,
+            previous_repository=previous,
         )
         verify_repository(
             published.root,
@@ -186,7 +378,17 @@ def main() -> int:
     parser.add_argument("--seed", required=True)
     parser.add_argument("--mandatory", action="store_true")
     args = parser.parse_args()
+    previous_directory = ROOT / ".previous-update-repository"
     try:
+        root_path = ROOT / "updates" / "trusted" / "root.json"
+        if not root_path.is_file():
+            raise OnlineReleaseError("A raiz TUF pública definitiva não acompanha a montagem.")
+        root_bytes = root_path.read_bytes()
+        previous_repository = download_authenticated_repository(
+            PILOT_UPDATE_URL,
+            previous_directory,
+            bootstrap_root=root_bytes,
+        )
         if args.release_directory.exists():
             raise OnlineReleaseError("A pasta Velopack precisa começar vazia.")
         args.release_directory.mkdir(parents=True)
@@ -199,9 +401,6 @@ def main() -> int:
             cwd=ROOT,
         )
         artifacts = _find_velopack_artifacts(args.release_directory, args.channel)
-        root_path = ROOT / "updates" / "trusted" / "root.json"
-        if not root_path.is_file():
-            raise OnlineReleaseError("A raiz TUF pública definitiva não acompanha a montagem.")
         setup_candidates = sorted(args.release_directory.glob("*Setup*.exe"))
         prepare_online_repository(
             artifacts=artifacts,
@@ -210,13 +409,17 @@ def main() -> int:
             rollout_percent=args.rollout,
             rollout_seed=args.seed,
             mandatory=args.mandatory,
-            bootstrap_root=root_path.read_bytes(),
+            bootstrap_root=root_bytes,
             role_signers=_load_online_signers(),
             signed_binaries=[args.pack_directory / "TrigoPDV.exe", *setup_candidates],
+            previous_repository=previous_repository,
         )
     except OnlineReleaseError as exc:
         print(f"RELEASE ONLINE BLOQUEADA: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if previous_directory.exists():
+            shutil.rmtree(previous_directory, ignore_errors=True)
     print(f"Release {RELEASE.version} autenticada e pronta para publicar no canal {args.channel}.")
     return 0
 
