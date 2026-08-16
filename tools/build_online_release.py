@@ -91,6 +91,27 @@ def create_continuity_checkpoint(repository_root: str | Path) -> dict:
         raise OnlineReleaseError("O checkpoint de continuidade não pôde ser criado.") from exc
 
 
+def _repository_checkpoint(checkpoint: Mapping[str, object]) -> dict:
+    keys = (
+        "format", "metadata_version", "root_sha256", "timestamp_sha256",
+        "snapshot_sha256", "targets_sha256", "channels",
+    )
+    try:
+        return {key: checkpoint[key] for key in keys}
+    except (KeyError, TypeError) as exc:
+        raise OnlineReleaseError("O checkpoint de continuidade é inválido.") from exc
+
+
+def checkpoint_digest(checkpoint: Mapping[str, object]) -> str:
+    try:
+        canonical = json.dumps(
+            dict(checkpoint), ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+    except (TypeError, ValueError) as exc:
+        raise OnlineReleaseError("O checkpoint de continuidade é inválido.") from exc
+
+
 def load_continuity_checkpoint(path: str | Path) -> dict:
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -101,15 +122,24 @@ def load_continuity_checkpoint(path: str | Path) -> dict:
         raise OnlineReleaseError("O checkpoint de continuidade é inválido.") from exc
 
 
-def write_continuity_checkpoint(repository_root: str | Path, output: str | Path) -> Path:
+def write_continuity_checkpoint(
+    repository_root: str | Path,
+    output: str | Path,
+    *,
+    previous_checkpoint: Mapping[str, object] | None = None,
+) -> Path:
     destination = Path(output).resolve()
     if destination.exists():
         raise OnlineReleaseError("O checkpoint de continuidade de saída já existe.")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
     try:
+        record = create_continuity_checkpoint(repository_root)
+        record["predecessor_checkpoint_sha256"] = (
+            checkpoint_digest(previous_checkpoint) if previous_checkpoint is not None else None
+        )
         temporary.write_text(
-            json.dumps(create_continuity_checkpoint(repository_root), sort_keys=True, indent=2) + "\n",
+            json.dumps(record, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
         os.replace(temporary, destination)
@@ -263,7 +293,7 @@ def download_authenticated_repository(
                 local = staging / "targets" / Path(*path.parts)
                 local.parent.mkdir(parents=True, exist_ok=True)
                 local.write_bytes(payload)
-            if create_continuity_checkpoint(staging) != dict(continuity_checkpoint):
+            if create_continuity_checkpoint(staging) != _repository_checkpoint(continuity_checkpoint):
                 raise OnlineReleaseError(
                     "O Pages autenticado diverge do checkpoint independente de continuidade."
                 )
@@ -278,6 +308,59 @@ def download_authenticated_repository(
         raise OnlineReleaseError(
             "O repositório remoto não pôde ser autenticado integralmente."
         ) from exc
+
+
+def deployment_continuity_status(
+    *,
+    base_url: str,
+    candidate_checkpoint: Mapping[str, object],
+    committed_checkpoint: Mapping[str, object] | None,
+    bootstrap_root: bytes,
+    allow_empty_initialization: bool = False,
+    request_get: Callable | None = None,
+) -> str:
+    """Return deploy/already-deployed after a last-moment continuity check."""
+
+    expected_predecessor = (
+        checkpoint_digest(committed_checkpoint) if committed_checkpoint is not None else None
+    )
+    if candidate_checkpoint.get("predecessor_checkpoint_sha256") != expected_predecessor:
+        raise OnlineReleaseError("O candidato de deploy está obsoleto ou possui predecessor incorreto.")
+
+    import tempfile
+
+    first_error: OnlineReleaseError | None = None
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        try:
+            previous = download_authenticated_repository(
+                base_url,
+                root / "committed",
+                bootstrap_root=bootstrap_root,
+                continuity_checkpoint=committed_checkpoint,
+                allow_empty_initialization=(
+                    allow_empty_initialization and committed_checkpoint is None
+                ),
+                request_get=request_get,
+            )
+            if previous is None:
+                return "deploy"
+            return "deploy"
+        except OnlineReleaseError as exc:
+            first_error = exc
+        try:
+            download_authenticated_repository(
+                base_url,
+                root / "candidate",
+                bootstrap_root=bootstrap_root,
+                continuity_checkpoint=candidate_checkpoint,
+                request_get=request_get,
+            )
+            return "already-deployed"
+        except OnlineReleaseError as exc:
+            raise OnlineReleaseError(
+                "O estado do Pages não corresponde ao ledger nem ao candidato deste deploy."
+            ) from (first_error or exc)
 
 
 def velopack_pack_command(
@@ -510,6 +593,61 @@ def refresh_online_repository(
             shutil.rmtree(workspace, ignore_errors=True)
 
 
+def prepare_policy_repository(
+    *,
+    previous_repository: str | Path,
+    site_root: str | Path,
+    channel: str,
+    rollout_percent: int,
+    rollout_seed: str,
+    mandatory: bool,
+    bootstrap_root: bytes,
+    role_signers: Mapping[str, Signer],
+    reference_time: datetime | None = None,
+) -> OnlineRepositoryResult:
+    """Change signed rollout policy while reusing authenticated artifact bytes."""
+
+    previous = Path(previous_repository).resolve()
+    manifest_path = previous / "targets" / "channels" / channel / "manifest.json"
+    try:
+        values = json.loads(manifest_path.read_text(encoding="utf-8"))
+        records = values["artifacts"]
+        if not isinstance(records, list) or len(records) != 2:
+            raise ValueError("invalid artifacts")
+        artifacts: list[Path] = []
+        target_root = (previous / "targets").resolve()
+        for record in records:
+            relative = str(record["target"])
+            parsed = PurePosixPath(relative)
+            if parsed.is_absolute() or ".." in parsed.parts or "\\" in relative or ":" in relative:
+                raise ValueError("unsafe artifact")
+            artifact = target_root.joinpath(*parsed.parts).resolve()
+            artifact.relative_to(target_root)
+            if (
+                not artifact.is_file()
+                or artifact.stat().st_size != int(record["length"])
+                or _sha256(artifact) != str(record["sha256"]).lower()
+            ):
+                raise ValueError("artifact mismatch")
+            artifacts.append(artifact)
+    except Exception as exc:
+        raise OnlineReleaseError("Os artefatos autenticados da política anterior são inválidos.") from exc
+    return prepare_online_repository(
+        artifacts=artifacts,
+        site_root=site_root,
+        channel=channel,
+        rollout_percent=rollout_percent,
+        rollout_seed=rollout_seed,
+        mandatory=mandatory,
+        bootstrap_root=bootstrap_root,
+        role_signers=role_signers,
+        signed_binaries=artifacts,
+        authenticode_checker=lambda path: True,
+        previous_repository=previous,
+        reference_time=reference_time,
+    )
+
+
 def _load_online_signers() -> dict[str, Signer]:
     signers: dict[str, Signer] = {}
     for role, secret_name in SECRET_NAMES.items():
@@ -542,6 +680,7 @@ def main() -> int:
     parser.add_argument("--seed")
     parser.add_argument("--mandatory", action="store_true")
     parser.add_argument("--refresh-only", action="store_true")
+    parser.add_argument("--policy-only", action="store_true")
     parser.add_argument("--initialize-empty", action="store_true")
     parser.add_argument("--continuity-checkpoint", type=Path)
     parser.add_argument(
@@ -568,6 +707,8 @@ def main() -> int:
             continuity_checkpoint=checkpoint,
             allow_empty_initialization=bool(args.initialize_empty),
         )
+        if args.refresh_only and args.policy_only:
+            raise OnlineReleaseError("Renovação e alteração de política são modos exclusivos.")
         if args.refresh_only:
             if args.initialize_empty or previous_repository is None:
                 raise OnlineReleaseError("A renovação agendada nunca inicializa um repositório vazio.")
@@ -577,11 +718,35 @@ def main() -> int:
                 bootstrap_root=root_bytes,
                 role_signers=_load_online_signers(),
             )
-            write_continuity_checkpoint(result.repository_root, args.continuity_output)
+            write_continuity_checkpoint(
+                result.repository_root,
+                args.continuity_output,
+                previous_checkpoint=checkpoint,
+            )
             print("Validade TUF renovada sem alterar release, rollout ou artefatos.")
             return 0
         if args.channel is None or not args.seed:
             raise OnlineReleaseError("Canal e semente são obrigatórios para publicar uma release.")
+        if args.policy_only:
+            if args.initialize_empty or previous_repository is None:
+                raise OnlineReleaseError("Uma alteração de política exige predecessor autenticado.")
+            result = prepare_policy_repository(
+                previous_repository=previous_repository,
+                site_root=args.site_root,
+                channel=args.channel,
+                rollout_percent=args.rollout,
+                rollout_seed=args.seed,
+                mandatory=args.mandatory,
+                bootstrap_root=root_bytes,
+                role_signers=_load_online_signers(),
+            )
+            write_continuity_checkpoint(
+                result.repository_root,
+                args.continuity_output,
+                previous_checkpoint=checkpoint,
+            )
+            print(f"Política autenticada do canal {args.channel} pronta para publicar.")
+            return 0
         if args.release_directory.exists():
             raise OnlineReleaseError("A pasta Velopack precisa começar vazia.")
         args.release_directory.mkdir(parents=True)
@@ -607,7 +772,11 @@ def main() -> int:
             signed_binaries=[args.pack_directory / "TrigoPDV.exe", *setup_candidates],
             previous_repository=previous_repository,
         )
-        write_continuity_checkpoint(result.repository_root, args.continuity_output)
+        write_continuity_checkpoint(
+            result.repository_root,
+            args.continuity_output,
+            previous_checkpoint=checkpoint,
+        )
     except OnlineReleaseError as exc:
         print(f"RELEASE ONLINE BLOQUEADA: {exc}", file=sys.stderr)
         return 1

@@ -11,11 +11,15 @@ from securesystemslib.signer import CryptoSigner
 
 from config.version import RELEASE
 from tools.build_online_release import (
+    checkpoint_digest,
     create_continuity_checkpoint,
+    deployment_continuity_status,
     download_authenticated_repository,
     OnlineReleaseError,
     prepare_online_repository,
+    prepare_policy_repository,
     refresh_online_repository,
+    write_continuity_checkpoint,
     velopack_pack_command,
 )
 from tools.tuf_repository import create_root_metadata, verify_repository
@@ -342,6 +346,120 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
             self.assertIsInstance(new_timestamp.signed, Timestamp)
             self.assertEqual(new_timestamp.signed.version, old_timestamp.signed.version + 1)
 
+    def test_continuity_record_binds_candidate_to_exact_predecessor(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            first = prepare_online_repository(
+                artifacts=self._artifacts(root / "first-artifacts", "pilot"),
+                site_root=root / "first",
+                channel="pilot", rollout_percent=10,
+                rollout_seed="bound-seed", mandatory=False,
+                bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            first_record_path = write_continuity_checkpoint(first, root / "first.json")
+            first_record = __import__("json").loads(first_record_path.read_text(encoding="utf-8"))
+            second = prepare_online_repository(
+                artifacts=self._artifacts(root / "second-artifacts", "pilot"),
+                site_root=root / "second",
+                channel="pilot", rollout_percent=20,
+                rollout_seed="bound-seed", mandatory=False,
+                bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                previous_repository=first, reference_time=self.now,
+            ).repository_root
+            second_path = write_continuity_checkpoint(
+                second, root / "second.json", previous_checkpoint=first_record,
+            )
+            second_record = __import__("json").loads(second_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                second_record["predecessor_checkpoint_sha256"],
+                checkpoint_digest(first_record),
+            )
+
+    def test_deploy_rejects_stale_candidate_and_reconciles_already_deployed_candidate(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            current = prepare_online_repository(
+                artifacts=self._artifacts(root / "current-artifacts", "pilot"),
+                site_root=root / "current-site", channel="pilot", rollout_percent=10,
+                rollout_seed="deploy-seed", mandatory=False,
+                bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            committed = create_continuity_checkpoint(current)
+            candidate_repository = prepare_policy_repository(
+                previous_repository=current,
+                site_root=root / "candidate-site", channel="pilot", rollout_percent=20,
+                rollout_seed="deploy-seed", mandatory=False,
+                bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            candidate = create_continuity_checkpoint(candidate_repository)
+            candidate["predecessor_checkpoint_sha256"] = checkpoint_digest(committed)
+            stale = dict(candidate)
+            stale["predecessor_checkpoint_sha256"] = "0" * 64
+            with self.assertRaisesRegex(OnlineReleaseError, "obsoleto|predecessor"):
+                deployment_continuity_status(
+                    base_url="https://updates.example/updates",
+                    candidate_checkpoint=stale,
+                    committed_checkpoint=committed,
+                    bootstrap_root=self.bootstrap,
+                    request_get=lambda *args, **kwargs: None,
+                )
+
+            class Response:
+                def __init__(self, payload):
+                    self.status_code = 200
+                    self.headers = {"Content-Length": str(len(payload))}
+                    self.payload = payload
+                def iter_content(self, chunk_size): yield self.payload
+                def close(self): pass
+            served = {"root": current}
+            def getter(url, **kwargs):
+                relative = url.split("/updates/", 1)[1]
+                return Response((served["root"] / relative).read_bytes())
+            self.assertEqual(deployment_continuity_status(
+                base_url="https://updates.example/updates",
+                candidate_checkpoint=candidate,
+                committed_checkpoint=committed,
+                bootstrap_root=self.bootstrap,
+                request_get=getter,
+            ), "deploy")
+
+            served["root"] = candidate_repository
+            self.assertEqual(deployment_continuity_status(
+                base_url="https://updates.example/updates",
+                candidate_checkpoint=candidate,
+                committed_checkpoint=committed,
+                bootstrap_root=self.bootstrap,
+                request_get=getter,
+            ), "already-deployed")
+
+    def test_policy_only_rollout_reuses_authenticated_artifact_bytes(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            first = prepare_online_repository(
+                artifacts=self._artifacts(root / "artifacts", "pilot"),
+                site_root=root / "first", channel="pilot", rollout_percent=5,
+                rollout_seed="policy-seed", mandatory=False,
+                bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            old_package = next((first / "targets/releases").rglob("*-full.nupkg")).read_bytes()
+            second = prepare_policy_repository(
+                previous_repository=first,
+                site_root=root / "second", channel="pilot", rollout_percent=50,
+                rollout_seed="policy-seed", mandatory=False,
+                bootstrap_root=self.bootstrap, role_signers=self.role_signers,
+                reference_time=self.now,
+            ).repository_root
+            new_package = next((second / "targets/releases").rglob("*-full.nupkg")).read_bytes()
+            self.assertEqual(new_package, old_package)
+            manifest = verify_repository(
+                second, bootstrap_root=self.bootstrap, channel="pilot", reference_time=self.now,
+            )
+            self.assertEqual(manifest["rollout_percent"], 50)
+
     def test_same_application_sequence_cannot_replace_artifact_bytes(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
             root = Path(directory)
@@ -565,6 +683,8 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
         self.assertIn("refresh-only", publication)
         self.assertIn("initialize_empty_repository", publication)
         self.assertIn("trigopdv-tuf-continuity", publication)
+        self.assertIn("policy_only", publication)
+        self.assertIn("check_update_deployment.py", publication)
 
 
 if __name__ == "__main__":

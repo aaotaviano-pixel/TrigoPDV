@@ -71,6 +71,9 @@ class UpdateMonitorTestCase(unittest.TestCase):
             )
             self.assertEqual(monitor.seconds_until_due(), 60 * 60)
 
+            monitor.clock = lambda: now - timedelta(days=1)
+            self.assertEqual(monitor.seconds_until_due(), 6 * 60 * 60)
+
     def test_failure_is_offline_safe_and_does_not_destroy_downloaded_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc)

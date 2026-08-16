@@ -93,7 +93,10 @@ class UpdateMonitor:
             return 0.0
         now = self.clock().astimezone(timezone.utc)
         remaining = self.interval - (now - last_check)
-        return max(0.0, remaining.total_seconds())
+        return min(
+            self.interval.total_seconds(),
+            max(0.0, remaining.total_seconds()),
+        )
 
     def start(self) -> bool:
         """Start once and return immediately; repeated starts are ignored."""

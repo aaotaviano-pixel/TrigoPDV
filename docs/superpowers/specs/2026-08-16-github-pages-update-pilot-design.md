@@ -74,10 +74,16 @@ Versão, sequência, schema e pack ID vêm de `release/version.toml`.
 9. Somente depois do deploy concluído, o workflow registra o novo checkpoint
    independente. A agenda de 12 horas apenas renova versão/expiração TUF,
    preservando byte a byte todos os targets, políticas e artefatos.
+10. Cada candidato inclui o hash do checkpoint predecessor. Imediatamente antes
+    do deploy, o job relê o último ledger concluído e o Pages autenticado. Uma
+    reexecução obsoleta é recusada; se o Pages já contém exatamente o candidato,
+    o job apenas conclui o ledger, sem reconstruir nem republicar arquivos.
 
 Uma republicação na mesma sequência pode apenas ampliar uma política já
 assinada e exige os mesmos nomes, tamanhos e SHA-256 dos artefatos. Bytes novos
-exigem sequência de aplicação maior.
+exigem sequência de aplicação maior. Expansão de rollout usa o modo somente
+política, que reaproveita os artefatos do predecessor autenticado e não executa
+PyInstaller ou Velopack.
 
 O workflow não lê banco, configuração, produtos operacionais, vendas, backups ou
 fila de impressão.
