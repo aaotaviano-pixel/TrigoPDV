@@ -690,6 +690,10 @@ class OnlineReleasePipelineTestCase(unittest.TestCase):
         self.assertIn("needs: build", publication)
         self.assertIn("python tools/release_gate.py", publication)
         self.assertIn("python -m unittest discover -s tests -q", publication)
+        self.assertGreaterEqual(
+            publication.count("if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"),
+            3,
+        )
         self.assertIn("TRIGOPDV_TUF_TARGETS_KEY", publication)
         self.assertNotIn("TRIGOPDV_TUF_ROOT_PASSPHRASE", publication)
         self.assertIn("cron:", publication)
