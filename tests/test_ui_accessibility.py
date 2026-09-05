@@ -15,7 +15,7 @@ from db.database import Database
 from desktop_controller import DesktopController
 from services.pdv_service import PDVService
 from ui.app import PDVApplication
-from ui.dialogs import CashActionsDialog, CashCloseDialog, CashResumeDialog, PasswordRecoveryDialog, PaymentDialog, ProductEditorDialog, RecoveryCodeSetupDialog, SearchDialog, UserCreateDialog, UserPasswordResetDialog
+from ui.dialogs import CashActionsDialog, CashCloseDialog, CashResumeDialog, PasswordRecoveryDialog, PaymentDialog, ProductEditorDialog, ProductionPreparationDialog, RecoveryCodeSetupDialog, SearchDialog, UserCreateDialog, UserPasswordResetDialog
 from tests.support import (
     TEST_ADMIN_LOGIN,
     TEST_ADMIN_PASSWORD,
@@ -153,6 +153,36 @@ class UIAccessibilityTestCase(unittest.TestCase):
         assert admin_view is not None
         self.assertIsNotNone(_find_button(admin_view, "Compactar banco"))
         self.assertIsNotNone(_find_button(admin_view, "Reorganizar índices"))
+
+    def test_production_preparation_is_reachable_and_blocks_after_use(self) -> None:
+        self.app.show_admin()
+        admin_view = self.app.admin_view
+        assert admin_view is not None
+        admin_view.notebook.select(admin_view.cash_tab)
+        self.app.update()
+
+        action = _find_button(admin_view, "Limpar testes e iniciar produção")
+        self.assertTrue(_has_scrollbar(admin_view.cash_tab))
+        admin_view.cash_scroll_canvas.yview_moveto(1.0)
+        self.app.update()
+        self.assertTrue(action.winfo_viewable())
+        _assert_visible(self, self.app, action)
+        action.invoke()
+        self.app.update()
+
+        dialog = next(
+            child
+            for child in admin_view.winfo_children()
+            if isinstance(child, ProductionPreparationDialog)
+        )
+        dialog.confirmation_var.set("INICIAR PRODUCAO")
+        confirm = _find_button(dialog, "Criar backup e limpar testes")
+        _assert_visible(self, dialog, confirm)
+        confirm.invoke()
+        self.app.update()
+
+        self.assertEqual(action.cget("state"), "disabled")
+        self.assertTrue(self.controller.production_preparation_status()["prepared"])
 
     def test_justification_error_is_scrolled_into_view(self) -> None:
         sale = self.app.sale_view

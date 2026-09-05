@@ -21,9 +21,9 @@ if not exist "%MIGRATION%" (
     exit /b 1
 )
 
-powershell -NoProfile -NonInteractive -Command "$v=(Get-Item -LiteralPath $env:TRIGOPDV_PACKAGE_EXE).VersionInfo.ProductVersion; if (-not $v -or -not $v.StartsWith('1.2.0')) { exit 1 }"
+powershell -NoProfile -NonInteractive -Command "$v=(Get-Item -LiteralPath $env:TRIGOPDV_PACKAGE_EXE).VersionInfo.ProductVersion; if (-not $v -or -not $v.StartsWith('1.2.1')) { exit 1 }"
 if errorlevel 1 (
-    echo ERRO: o instalador deste pacote ainda nao e a versao 1.2.0 validada.
+    echo ERRO: o instalador deste pacote ainda nao e a versao 1.2.1 validada.
     echo Nao instale uma versao antiga. Atualize o pacote e tente novamente.
     pause
     exit /b 1

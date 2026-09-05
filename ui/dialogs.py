@@ -1486,3 +1486,71 @@ class ConfirmDialog(BaseDialog):
 
     def submit(self) -> None:
         self._accept(self.on_confirm)
+
+
+class ProductionPreparationDialog(BaseDialog):
+    """One-time, typed confirmation for removing training operations."""
+
+    CONFIRMATION = "INICIAR PRODUCAO"
+
+    def __init__(self, parent: tk.Misc, on_submit: Callable[[str], Any]) -> None:
+        super().__init__(
+            parent,
+            "Preparar para produção",
+            "Use uma única vez, depois dos testes e antes da primeira venda real.",
+            width=560,
+            height=560,
+        )
+        self.on_submit = on_submit
+        self.confirmation_var = tk.StringVar()
+
+        tk.Label(
+            self.body,
+            text=(
+                "O sistema fará um backup automático e depois removerá vendas, "
+                "caixas, movimentações, comprovantes e auditoria de treinamento."
+            ),
+            bg=Colors.CREAM,
+            fg=Colors.INK,
+            font=font(10),
+            justify="left",
+            anchor="w",
+            wraplength=490,
+        ).pack(fill="x")
+        tk.Label(
+            self.body,
+            text=(
+                "Produtos, preços, configurações e usuários serão mantidos. O estoque "
+                "voltará a zero e ficará sem bloqueio até o inventário real. Esta ação "
+                "fica bloqueada para sempre após a primeira execução."
+            ),
+            bg=Colors.WARNING_SOFT,
+            fg=Colors.WARNING,
+            font=font(9, "bold"),
+            justify="left",
+            anchor="w",
+            padx=12,
+            pady=10,
+            wraplength=470,
+        ).pack(fill="x", pady=(14, 0))
+        SectionLabel(self.body, f"DIGITE {self.CONFIRMATION}").pack(
+            fill="x", pady=(18, 5)
+        )
+        self.confirmation_entry = _entry(self.body, self.confirmation_var)
+        self.confirmation_entry.pack(fill="x")
+        actions = tk.Frame(self.body, bg=Colors.CREAM)
+        actions.pack(fill="x", pady=(22, 0))
+        Button(actions, "Cancelar", self.cancel, variant="ghost").pack(side="right")
+        Button(actions, "Criar backup e limpar testes", self.submit, variant="danger").pack(
+            side="right", padx=(0, 8)
+        )
+        self.confirmation_entry.bind("<Return>", lambda _event: self.submit())
+        self._schedule_after(30, self.confirmation_entry.focus_set)
+
+    def submit(self) -> None:
+        confirmation = " ".join(self.confirmation_var.get().strip().upper().split())
+        if confirmation != self.CONFIRMATION:
+            self.show_error(f"Digite exatamente {self.CONFIRMATION} para continuar.")
+            self.confirmation_entry.focus_set()
+            return
+        self._accept(self.on_submit, confirmation)

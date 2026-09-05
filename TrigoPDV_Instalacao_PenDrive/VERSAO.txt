@@ -1,11 +1,11 @@
-TRIGOPDV 1.2.0
+TRIGOPDV 1.2.1
 ===============
 
-Versao do aplicativo: 1.2.0
+Versao do aplicativo: 1.2.1
 Schema do banco operacional: 9
 Catalogo inicial: 192 produtos
 Usuarios, vendas, caixas e historico no pacote: nenhum
-Data da montagem validada: 16/08/2026
+Data da documentacao: 05/09/2026
 
 O banco local e criado no primeiro inicio. Cada computador recebe um
 identificador de instalacao proprio. Consulte MANIFESTO-SHA256.txt para conferir
@@ -14,3 +14,6 @@ a integridade dos arquivos do pacote.
 Atualizacoes online autenticadas ficam habilitadas no canal piloto. O sistema
 continua vendendo sem internet; a instalacao de uma versao baixada exige
 administrador, caixa fechado e copia de seguranca validada.
+
+Esta versao inclui a preparacao unica para producao: um administrador pode
+criar backup e limpar as operacoes de treinamento antes da primeira venda real.

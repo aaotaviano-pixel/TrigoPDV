@@ -8,6 +8,7 @@ import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import zipfile
 from uuid import uuid4
 
 
@@ -24,6 +25,21 @@ class UsbStageResult:
 MANIFEST_NAME = "MANIFESTO-SHA256.txt"
 SETUP_NAME = "TrigoPDV-Setup.exe"
 ALLOWED_SQLITE = "dados-iniciais/catalogo-produtos.sqlite3"
+REQUIRED_SOURCE_FILES = (
+    "INSTALAR.txt",
+    "VERSAO.txt",
+    "config-impressora/LEIA-ME.md",
+    "config-impressora/Listar_Impressoras.ps1",
+    "config-impressora/config.ini.exemplo",
+    "dados-iniciais/catalogo-produtos.manifest.json",
+    ALLOWED_SQLITE,
+    "instalador/Instalar_TrigoPDV.cmd",
+    "instalador/Migrar_Instalacao_Legada.ps1",
+    "manual-de-uso/CHECKLIST_INSTALACAO_AMANHA.md",
+    "manual-de-uso/CHECKLIST_OPERACAO_DIARIA.md",
+    "manual-de-uso/LEIA-ME.txt",
+    "manual-de-uso/Manual_de_Uso_TrigoPDV.docx",
+)
 
 
 def _digest(path: Path) -> str:
@@ -53,6 +69,24 @@ def _safe_sources(source: Path) -> list[tuple[str, Path]]:
             raise UsbStageError("O pacote USB contém dados operacionais e foi bloqueado.")
         records.append((relative, path))
     return sorted(records, key=lambda item: item[0].casefold())
+
+
+def _validate_required_sources(source: Path, files: list[tuple[str, Path]]) -> None:
+    available = {relative for relative, _path in files}
+    missing = [relative for relative in REQUIRED_SOURCE_FILES if relative not in available]
+    if missing:
+        raise UsbStageError(
+            "O pacote USB está incompleto; faltam arquivos obrigatórios: "
+            + ", ".join(missing)
+        )
+    manual = source / "manual-de-uso/Manual_de_Uso_TrigoPDV.docx"
+    try:
+        with zipfile.ZipFile(manual) as archive:
+            required_parts = {"[Content_Types].xml", "word/document.xml"}
+            if not required_parts.issubset(archive.namelist()):
+                raise UsbStageError("O manual DOCX do pacote USB está inválido.")
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise UsbStageError("O manual DOCX do pacote USB está inválido.") from exc
 
 
 def verify_usb_package(root: str | Path) -> bool:
@@ -101,6 +135,7 @@ def stage_usb_package(
     if not source.is_dir() or not setup.is_file() or output.exists():
         raise UsbStageError("A origem, o Setup ou o destino do pacote USB é inválido.")
     files = _safe_sources(source)
+    _validate_required_sources(source, files)
     staging = output.parent / f".{output.name}.{uuid4().hex}.staging"
     try:
         staging.mkdir(parents=True, exist_ok=False)

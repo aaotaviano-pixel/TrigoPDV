@@ -1,8 +1,7 @@
 [release]
-version = "1.2.0"
-sequence = 3
+version = "1.2.1"
+sequence = 4
 schema_target = 9
 pack_id = "TrigoDeMinas.TrigoPDV.V2"
 title = "TrigoPDV"
 channel = "stable"
-

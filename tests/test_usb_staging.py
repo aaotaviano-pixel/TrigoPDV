@@ -3,21 +3,43 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 
 from tools.stage_usb_installer import UsbStageError, stage_usb_package, verify_usb_package
 
 
 class UsbInstallerStagingTestCase(unittest.TestCase):
+    @staticmethod
+    def _complete_source(root: Path) -> Path:
+        source = root / "source"
+        files = {
+            "INSTALAR.txt": "instruções",
+            "VERSAO.txt": "1.2.1",
+            "config-impressora/LEIA-ME.md": "impressora",
+            "config-impressora/Listar_Impressoras.ps1": "Get-Printer",
+            "config-impressora/config.ini.exemplo": "[printing]",
+            "dados-iniciais/catalogo-produtos.manifest.json": "{}",
+            "instalador/Instalar_TrigoPDV.cmd": "@echo off",
+            "instalador/Migrar_Instalacao_Legada.ps1": "param()",
+            "manual-de-uso/CHECKLIST_INSTALACAO_AMANHA.md": "checklist",
+            "manual-de-uso/CHECKLIST_OPERACAO_DIARIA.md": "rotina",
+            "manual-de-uso/LEIA-ME.txt": "manual",
+        }
+        for relative, content in files.items():
+            path = source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        (source / "dados-iniciais/catalogo-produtos.sqlite3").write_bytes(b"catalog")
+        manual = source / "manual-de-uso/Manual_de_Uso_TrigoPDV.docx"
+        with zipfile.ZipFile(manual, "w") as archive:
+            archive.writestr("[Content_Types].xml", "<Types />")
+            archive.writestr("word/document.xml", "<document />")
+        return source
+
     def test_stages_setup_and_writes_verified_manifest_last(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
             root = Path(directory)
-            source = root / "source"
-            (source / "dados-iniciais").mkdir(parents=True)
-            (source / "INSTALAR.txt").write_text("instruções", encoding="utf-8")
-            (source / "dados-iniciais/catalogo-produtos.sqlite3").write_bytes(b"catalog")
-            (source / "dados-iniciais/catalogo-produtos.manifest.json").write_text(
-                "{}", encoding="utf-8"
-            )
+            source = self._complete_source(root)
             setup = root / "TrigoPDV-Setup.exe"
             setup.write_bytes(b"velopack setup")
 
@@ -34,8 +56,7 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
     def test_rejects_operational_database_sidecars_and_stale_generated_files(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
             root = Path(directory)
-            source = root / "source"
-            source.mkdir()
+            source = self._complete_source(root)
             setup = root / "setup.exe"
             setup.write_bytes(b"setup")
             for name in (
@@ -51,6 +72,22 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
                     with self.assertRaises(UsbStageError):
                         stage_usb_package(source, setup, root / f"stage-{name.replace('.', '-')}")
                     candidate.unlink()
+
+    def test_rejects_package_when_manual_is_missing_or_invalid(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            source = self._complete_source(root)
+            setup = root / "setup.exe"
+            setup.write_bytes(b"setup")
+            manual = source / "manual-de-uso/Manual_de_Uso_TrigoPDV.docx"
+
+            manual.unlink()
+            with self.assertRaisesRegex(UsbStageError, "arquivos obrigatórios"):
+                stage_usb_package(source, setup, root / "missing-manual")
+
+            manual.write_text("não é um DOCX", encoding="utf-8")
+            with self.assertRaisesRegex(UsbStageError, "DOCX.*inválido"):
+                stage_usb_package(source, setup, root / "invalid-manual")
 
 
 if __name__ == "__main__":

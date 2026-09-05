@@ -1,6 +1,6 @@
-"""Contratos do lock de instância única por arquivo de banco.
+"""Contratos multiplataforma do lock de instância única por arquivo de banco.
 
-Os testes Win32 usam processos ``spawn`` reais. Todos os waits e joins têm
+Os testes entre processos usam ``spawn`` real. Todos os waits e joins têm
 limite e o cleanup encerra qualquer filho que não tenha finalizado.
 """
 
@@ -237,6 +237,86 @@ class SingleInstanceWin32TestCase(unittest.TestCase):
 
         self.assertEqual(str(captured.exception), module._SAFE_FAILURE_MESSAGE)
         self.assertNotIn(raw_path, str(captured.exception))
+
+
+@unittest.skipUnless(os.name == "posix", "flock é validado somente em sistemas POSIX")
+class SingleInstancePosixTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.root = Path(self.temporary.name)
+        self.lock_dir = self.root / "runtime-locks"
+        self.context = multiprocessing.get_context("spawn")
+        self.children: list[multiprocessing.Process] = []
+
+    def tearDown(self) -> None:
+        for process in self.children:
+            if process.is_alive():
+                process.terminate()
+            process.join(PROCESS_TIMEOUT_SECONDS)
+        self.temporary.cleanup()
+
+    def _start(self, target, args: tuple[object, ...]) -> multiprocessing.Process:
+        process = self.context.Process(target=target, args=args)
+        process.start()
+        self.children.append(process)
+        return process
+
+    def test_same_database_is_exclusive_across_processes(self) -> None:
+        module = _single_instance_module()
+        database_path = self.root / "dados" / "pdv.sqlite3"
+        outcome = self.context.Value("i", 0)
+
+        with module.SingleInstanceGuard(database_path, lock_dir=self.lock_dir):
+            process = self._start(
+                _try_acquire_worker,
+                (str(database_path), str(self.lock_dir), outcome),
+            )
+            _join_or_terminate(self, process)
+
+        self.assertEqual(process.exitcode, 0)
+        self.assertEqual(outcome.value, 2)
+        self.assertFalse(database_path.exists())
+
+    def test_different_databases_can_coexist(self) -> None:
+        module = _single_instance_module()
+        outcome = self.context.Value("i", 0)
+
+        with module.SingleInstanceGuard(self.root / "first.sqlite3", lock_dir=self.lock_dir):
+            process = self._start(
+                _try_acquire_worker,
+                (str(self.root / "second.sqlite3"), str(self.lock_dir), outcome),
+            )
+            _join_or_terminate(self, process)
+
+        self.assertEqual(process.exitcode, 0)
+        self.assertEqual(outcome.value, 1)
+
+    def test_release_is_idempotent_and_crash_releases_lock(self) -> None:
+        module = _single_instance_module()
+        database_path = self.root / "pdv.sqlite3"
+        acquired = self.context.Event()
+        crash_now = self.context.Event()
+        process = self._start(
+            _hold_then_crash_worker,
+            (str(database_path), str(self.lock_dir), acquired, crash_now),
+        )
+        self.assertTrue(acquired.wait(PROCESS_TIMEOUT_SECONDS))
+        crash_now.set()
+        _join_or_terminate(self, process)
+        self.assertEqual(process.exitcode, 23)
+
+        guard = module.SingleInstanceGuard(database_path, lock_dir=self.lock_dir)
+        guard.acquire()
+        self.assertIs(guard.acquire(), guard)
+        guard.release()
+        guard.release()
+
+    def test_descriptor_is_not_inherited(self) -> None:
+        module = _single_instance_module()
+        guard = module.SingleInstanceGuard(self.root / "pdv.sqlite3", lock_dir=self.lock_dir)
+
+        with guard:
+            self.assertFalse(os.get_inheritable(guard._handle))
 
 
 class EntrypointSingleInstanceOrderTestCase(unittest.TestCase):

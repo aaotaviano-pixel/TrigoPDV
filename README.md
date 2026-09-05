@@ -20,6 +20,12 @@ Também é possível abrir `run_pdv.bat` depois de instalar as dependências.
 
 No primeiro início são criadas a configuração `config.ini` e uma base operacional nova no computador. O catálogo inicial contém somente produtos; a tela de configuração inicial permite que o responsável crie a própria conta administrativa, senha e recuperação. Não existe credencial padrão no código ou no pen drive.
 
+Antes da primeira venda real, faça os testes com o estoque ainda sem bloqueio.
+Depois, entre como administrador em **Caixa e manutenção** e use uma única vez
+**Limpar testes e iniciar produção**. A operação cria um backup verificado,
+remove vendas/caixas de treinamento, mantém produtos, preços e usuários, zera o
+estoque e fica permanentemente bloqueada para proteger a operação comercial.
+
 ## Configuração
 
 Edite `config.ini` antes de operar em produção. Os pontos mais importantes são:

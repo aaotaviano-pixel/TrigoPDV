@@ -3,7 +3,7 @@
 ## Levar
 
 - computador Windows 10 ou 11, com usuário que possa instalar programas;
-- pen drive com a pasta completa do TrigoPDV 1.2.0;
+- pen drive com a pasta completa do TrigoPDV 1.2.1;
 - teclado, mouse e leitor de código de barras USB configurado como teclado;
 - impressora térmica já instalada no Windows, papel e cabo USB/rede;
 - valores e contagem reais do estoque para revisar preços e saldos;
@@ -22,11 +22,10 @@ banco é local e é criado automaticamente em `%LOCALAPPDATA%\TrigoPDV`.
 4. Entre com o administrador e crie o usuário operador. Não compartilhe senhas.
 5. Abra Configurações > Impressão, atualize a lista, escolha a fila instalada
    no Windows e faça uma impressão física de teste.
-6. Revise os preços do catálogo e faça inventário antes de ativar bloqueio de
-   estoque. O catálogo começa com saldo físico zero.
-7. Em Configurações, confirme que `Atualização segura do sistema` mostra o
-   canal piloto configurado. A verificação não deve impedir vendas sem internet.
-8. Feche o caixa de treinamento antes de testar `Instalar agora`; nunca force
+6. Em `Administração → Visão geral`, confirme que `Atualização segura do sistema`
+   mostra o canal piloto configurado. A verificação não deve impedir vendas sem
+   internet.
+7. Feche o caixa de treinamento antes de testar `Instalar agora`; nunca force
    uma atualização durante uma venda.
 
 ## Teste antes da primeira venda real
@@ -40,15 +39,21 @@ banco é local e é criado automaticamente em `%LOCALAPPDATA%\TrigoPDV`.
 - faça retirada e entrada pequenas, com justificativa, e confira o saldo;
 - feche o caixa e confirme que a conta continua conectada;
 - gere um backup pelo sistema, feche e abra o aplicativo novamente;
-- depois dos testes, remova somente os registros de treinamento pelo fluxo
-  correto do sistema. Não apague o arquivo do banco manualmente.
+- antes da abertura comercial, feche e abra o aplicativo 20 vezes e confirme
+  no Gerenciador de Tarefas que `TrigoPDV.exe` encerra a cada fechamento;
+- entre como administrador, abra `Caixa e manutenção` e clique uma única vez em
+  `Limpar testes e iniciar produção`;
+- confirme que o sistema informou `backup verificado` e nunca apague o arquivo
+  do banco manualmente;
+- somente depois da limpeza, revise os preços, faça o inventário real e ative o
+  controle de estoque dos produtos que devem bloquear venda sem saldo.
 
 ## Limites que precisam de validação física
 
 - a impressão real depende do driver e da fila instalados nessa máquina;
 - a consulta de GTIN novo depende de internet e da configuração válida da API;
 - produtos já cadastrados, vendas e caixa continuam locais sem internet;
-- o canal piloto usa HTTPS e metadados TUF autenticados. O primeiro 1.2.0 vem
+- o canal piloto usa HTTPS e metadados TUF autenticados. O primeiro 1.2.1 vem
   pelo pen drive; versões seguintes podem ser baixadas pelo próprio PDV.
 - sem certificado Authenticode, o piloto pode gerar aviso do Windows; o canal
   `stable` permanece bloqueado até assinatura empresarial e ensaio físico.
