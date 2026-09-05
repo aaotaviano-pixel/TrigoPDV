@@ -149,7 +149,7 @@ jobs:
           python @arguments
 
       - name: Upload verified static repository
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trigopdv-update-site
           path: _site
@@ -157,7 +157,7 @@ jobs:
           retention-days: 30
 
       - name: Upload continuity candidate
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trigopdv-tuf-continuity-candidate
           path: _continuity-next/checkpoint.json
@@ -174,7 +174,7 @@ jobs:
 
       - name: Upload verified USB bootstrap
         if: github.event_name != 'schedule' && inputs.policy_only != true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trigopdv-usb-package
           path: _usb_stage
@@ -274,7 +274,7 @@ jobs:
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
 
       - name: Commit independent continuity ledger
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trigopdv-tuf-continuity
           path: _continuity-next/checkpoint.json
