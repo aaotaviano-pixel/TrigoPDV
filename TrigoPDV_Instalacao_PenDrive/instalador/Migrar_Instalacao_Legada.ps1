@@ -128,7 +128,7 @@ try {
     if ($env:TRIGOPDV_MIGRATION_TEST_MODE -ne '1') { Set-TrigoShortcuts }
     $after = Get-DataFingerprint -Root $dataRoot
     Assert-FingerprintsEqual -Before $before -After $after
-    Write-Host 'TrigoPDV 1.2 instalado; dados locais preservados e atualizador online validado.'
+    Write-Host 'TrigoPDV 1.2.1 instalado; dados locais preservados e atualizador online validado.'
     exit 0
 } catch {
     Write-Error $_.Exception.Message

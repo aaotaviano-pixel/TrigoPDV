@@ -22,6 +22,7 @@ from .cash import CashService
 from .errors import AuthenticationError, AuthorizationError, ValidationError
 from .pix import PixService
 from .products import ProductService
+from .production import ProductionPreparationService
 from .provisioning import ProvisioningService, ProvisioningStatus
 from .sales import SaleService
 from .security import get_active_user, require_admin
@@ -65,6 +66,7 @@ class PDVService:
         self.auth = AuthService(self.database, self.audit)
         self.provisioning = ProvisioningService(self.database)
         self.backup = BackupService(self.database, self.settings.backup_path, audit=self.audit)
+        self.production = ProductionPreparationService(self.database, self.backup)
         self.products = ProductService(
             self.database,
             external_client=OpenFoodFactsClient(timeout=self.settings.open_food_facts_timeout),
@@ -524,6 +526,15 @@ class PDVService:
 
     def integrity_check(self) -> str:
         return self.backup.integrity_check(actor_id=self._actor_id())
+
+    def prepare_for_production(self, confirmation: str, actor_id: int) -> dict:
+        actor = self._session_actor(actor_id)
+        self._admin_actor()
+        return self.production.prepare(actor_id=actor, confirmation=confirmation)
+
+    def production_preparation_status(self) -> dict:
+        actor = self._admin_actor()
+        return self.production.status(actor_id=actor)
 
     # Métodos abaixo espelham o contrato do painel administrativo Tkinter.
     def admin_dashboard(self) -> dict:

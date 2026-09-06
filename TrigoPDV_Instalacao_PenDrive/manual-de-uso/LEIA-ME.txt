@@ -6,5 +6,6 @@ detecção automática/seleção/teste da impressora em Administração > Impres
 recuperacao de senha, backup e o roteiro de testes em producao.
 
 O pacote atualizado contém 192 produtos iniciais sem histórico operacional.
-Revise os precos e o saldo fisico antes de vender. A confirmacao fisica da
-impressora termica deve ser feita na maquina da padaria.
+Depois dos testes, o administrador usa uma unica vez "Limpar testes e iniciar
+producao". Em seguida, revise os precos, faca o inventario real e teste a
+impressora termica na maquina da padaria.

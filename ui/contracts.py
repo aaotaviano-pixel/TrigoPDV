@@ -193,6 +193,10 @@ class PdvController(Protocol):
 
     def run_maintenance(self, operation: str, actor_id: int) -> Mapping[str, Any] | None: ...
 
+    def prepare_for_production(self, confirmation: str, actor_id: int) -> Mapping[str, Any]: ...
+
+    def production_preparation_status(self) -> Mapping[str, Any]: ...
+
 
 class ControllerError(RuntimeError):
     """Shown when the desktop bootstrap did not expose a required UI operation."""

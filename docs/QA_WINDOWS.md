@@ -1,27 +1,32 @@
-# QA manual Windows — TrigoPDV 1.2.0
+# QA físico Windows — TrigoPDV 1.2.1
 
-Registrar máquina, versão do Windows, resolução/DPI, impressora/driver, largura
-do papel, leitor e resultado de cada cenário sem copiar dados pessoais.
+O workflow Windows valida automaticamente regras de venda, caixa, estoque,
+permissões, backup, migrações, impressão simulada, atualização TUF, instância
+única e integridade do pacote. O instalador também confere o SHA-256 de todos os
+arquivos antes de abrir o Setup.
 
-## Matriz mínima
+Registrar somente máquina, versão do Windows, resolução/DPI, impressora/driver,
+largura do papel, leitor e resultado dos testes físicos, sem copiar dados
+pessoais.
+
+## Matriz física mínima
 
 | Área | Cenários |
 |---|---|
-| Tela | resolução real; DPI 100%, 125% e 150%; rolagem e teclado |
-| Leitor | GTIN conhecido, desconhecido, repetido rápido, Enter extra |
-| Caixa | abrir, retomar, entrada, retirada, fechar, reabrir |
-| Venda | unidade, KG, preço excepcional, R$ 50 de itens manuais, troco |
-| Segurança | troca obrigatória, cinco erros, recuperação, código rotacionado |
-| Impressão | USB/rede, padrão/específica, 58/80 mm, acento, falta de papel |
-| Falhas | impressora removida, spooler parado, internet fora, duplo clique |
-| Persistência | reinício preserva usuário, preço, caixa, impressora e backup |
+| Tela | resolução e DPI usados no caixa; botões, rolagem e teclado visíveis |
+| Leitor | leitura única com Enter; leitura rápida sem quantidade duplicada |
+| Impressão | fila real; 58/80 mm; acentos; corte; falta de papel; segunda via |
+| Pagamentos | confirmação real no banco PIX e na maquininha de treinamento |
+| Backup | gravação em outro disco, pen drive ou pasta segura configurada |
+| Encerramento | fechar uma vez; processo encerra; nova abertura funciona |
+| Preparação | executar a limpeza única e guardar o backup antes do inventário |
 
 ## Critérios
 
-- Uma falha de impressão não desfaz nem duplica venda.
-- Segunda via não altera estoque ou caixa.
-- PIX/cartão não são confirmados nem estornados pelo banco no TrigoPDV.
-- Consulta de GTIN externa fora do ar não bloqueia catálogo/venda local.
-- Nenhuma ação fecha ou substitui banco existente sem backup verificável.
-- Qualquer erro crítico impede abertura comercial até correção ou rollback para
-  a cópia offline íntegra.
+- O papel sai legível, com largura e corte corretos.
+- Falta de papel não leva o operador a repetir a venda.
+- Leitor e teclado não duplicam item nem escondem controles da tela.
+- PIX e cartão são conferidos no serviço externo antes da confirmação no PDV.
+- O backup externo é criado e o processo encerra ao fechar a janela.
+- Qualquer falha física impede a abertura comercial até correção ou uso da
+  cópia offline íntegra.

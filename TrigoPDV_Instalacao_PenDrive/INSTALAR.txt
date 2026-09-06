@@ -1,11 +1,12 @@
-TRIGOPDV - PACOTE PARA PEN DRIVE
-===============================
+TRIGOPDV 1.2.1 - PACOTE PARA PEN DRIVE
+=====================================
 
 1. Copie esta pasta inteira para o pen drive. Nao mova nem renomeie o arquivo
    TrigoPDV-Setup.exe; ele cria a estrutura exigida pelas atualizacoes online.
-2. Na maquina do caixa, execute instalador\Instalar_TrigoPDV.cmd. Ele valida o
-   Setup, preserva os dados de uma versao antiga e instala a estrutura exigida
-   pelas atualizacoes online. O TrigoPDV-Setup.exe e o payload do assistente.
+2. Na maquina do caixa, execute instalador\Instalar_TrigoPDV.cmd. Ele confere
+   automaticamente o SHA-256 de todos os arquivos, valida o Setup, preserva os
+   dados de uma versao antiga e instala a estrutura exigida pelas atualizacoes
+   online. O TrigoPDV-Setup.exe e o payload do assistente.
 3. Aguarde a criacao do atalho "TrigoPDV" na Area de Trabalho e no Menu Iniciar.
 4. No primeiro inicio, o administrador cria a propria conta e senha na tela de
    configuracao inicial. Nao existe senha padrao nem credencial no pen drive.
@@ -19,9 +20,10 @@ O instalador nao exige Python nem conexao com a internet. A internet e usada
 para consultar produtos novos pelo GTIN e verificar atualizacoes autenticadas;
 produtos locais e vendas continuam funcionando sem rede.
 
-Este pacote e a versao 1.2.0. O instalador ainda nao possui assinatura digital
-de empresa. Use somente a copia recebida no pen drive confiavel e confira o
-arquivo MANIFESTO-SHA256.txt antes de instalar. Nao baixe copias de terceiros.
+Este pacote e a versao 1.2.1. O instalador ainda nao possui assinatura digital
+de empresa. Use somente a copia recebida no pen drive confiavel; a verificacao
+do arquivo MANIFESTO-SHA256.txt ocorre antes da instalacao. Nao baixe copias de
+terceiros.
 
 Dados do sistema: %LOCALAPPDATA%\TrigoPDV
 Essa pasta guarda config.ini, banco, backups e fila de impressao. Nao a apague
@@ -35,6 +37,12 @@ de mercado e devem ser revisados antes da abertura. Todos começam com saldo
 fisico zero e sem bloqueio de estoque, pois a quantidade da loja nao foi
 informada. Depois do inventario, informe o saldo real e ative o controle de
 estoque no painel quando fizer sentido.
+
+Depois dos testes e antes da primeira venda real, entre como administrador em
+Caixa e manutencao e use "Limpar testes e iniciar producao". O sistema cria um
+backup verificado, remove os testes e bloqueia uma segunda limpeza para proteger
+as vendas reais. Depois disso, faca o inventario e ative o estoque dos produtos
+que devem ser controlados.
 
 O banco local da operacao fica em %LOCALAPPDATA%\TrigoPDV. O pen drive deve ser
 usado apenas para instalar e transportar o pacote; nao venda diretamente a

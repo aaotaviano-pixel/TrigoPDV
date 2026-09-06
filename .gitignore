@@ -60,6 +60,7 @@ CLAUDE.md
 # Documentos binários com metadados locais
 *.docx
 *.pdf
+!TrigoPDV_Instalacao_PenDrive/manual-de-uso/Manual_de_Uso_TrigoPDV.docx
 
 # Editores e sistema operacional
 .worktrees/

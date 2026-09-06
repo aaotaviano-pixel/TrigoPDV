@@ -729,6 +729,15 @@ class DesktopController:
         self._require_admin()
         return self.service.run_maintenance(operation, actor_id)
 
+    def prepare_for_production(self, confirmation: str, actor_id: int) -> dict:
+        self._actor(actor_id)
+        self._require_admin()
+        return self.service.prepare_for_production(confirmation, actor_id)
+
+    def production_preparation_status(self) -> dict:
+        self._require_admin()
+        return self.service.production_preparation_status()
+
     def test_printer(self) -> dict:
         """Envia um comprovante de teste sem criar venda ou alterar estoque."""
 
