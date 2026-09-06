@@ -26,7 +26,10 @@ class TufRepositoryToolTestCase(unittest.TestCase):
             role: CryptoSigner.generate_ed25519()
             for role in ("targets", "snapshot", "timestamp")
         }
-        self.now = datetime(2026, 8, 16, 18, 0, tzinfo=timezone.utc)
+        # The real TUF client validates expiration against the wall clock.
+        # Keep generated metadata valid whenever the suite is executed instead
+        # of tying this integration test to the date it was first written.
+        self.now = datetime.now(timezone.utc).replace(microsecond=0)
 
     def _targets(self, root: Path, *, sequence: int = 3) -> Path:
         targets = root / "unsigned-targets"
