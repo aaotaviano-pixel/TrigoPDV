@@ -3,9 +3,10 @@ TRIGOPDV 1.2.1 - PACOTE PARA PEN DRIVE
 
 1. Copie esta pasta inteira para o pen drive. Nao mova nem renomeie o arquivo
    TrigoPDV-Setup.exe; ele cria a estrutura exigida pelas atualizacoes online.
-2. Na maquina do caixa, execute instalador\Instalar_TrigoPDV.cmd. Ele valida o
-   Setup, preserva os dados de uma versao antiga e instala a estrutura exigida
-   pelas atualizacoes online. O TrigoPDV-Setup.exe e o payload do assistente.
+2. Na maquina do caixa, execute instalador\Instalar_TrigoPDV.cmd. Ele confere
+   automaticamente o SHA-256 de todos os arquivos, valida o Setup, preserva os
+   dados de uma versao antiga e instala a estrutura exigida pelas atualizacoes
+   online. O TrigoPDV-Setup.exe e o payload do assistente.
 3. Aguarde a criacao do atalho "TrigoPDV" na Area de Trabalho e no Menu Iniciar.
 4. No primeiro inicio, o administrador cria a propria conta e senha na tela de
    configuracao inicial. Nao existe senha padrao nem credencial no pen drive.
@@ -20,8 +21,9 @@ para consultar produtos novos pelo GTIN e verificar atualizacoes autenticadas;
 produtos locais e vendas continuam funcionando sem rede.
 
 Este pacote e a versao 1.2.1. O instalador ainda nao possui assinatura digital
-de empresa. Use somente a copia recebida no pen drive confiavel e confira o
-arquivo MANIFESTO-SHA256.txt antes de instalar. Nao baixe copias de terceiros.
+de empresa. Use somente a copia recebida no pen drive confiavel; a verificacao
+do arquivo MANIFESTO-SHA256.txt ocorre antes da instalacao. Nao baixe copias de
+terceiros.
 
 Dados do sistema: %LOCALAPPDATA%\TrigoPDV
 Essa pasta guarda config.ini, banco, backups e fila de impressao. Nao a apague

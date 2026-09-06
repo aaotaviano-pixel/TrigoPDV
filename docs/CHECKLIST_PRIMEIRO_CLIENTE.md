@@ -2,12 +2,13 @@
 
 ## Antes de sair
 
-- [ ] Build e instaladores com ProductVersion 1.2.1.
+- [x] Metadados e instaladores exigem ProductVersion 1.2.1.
 - [x] Catálogo distribuível com 192 produtos e sem banco operacional clonado.
 - [ ] Suíte completa aprovada no workflow Windows do commit de produção.
 - [x] Setup e CMD exercitados em instalação isolada.
 - [x] Manifesto e ZIP validados.
-- [ ] Copiar para o pen drive físico e conferir o SHA-256 do ZIP.
+- [ ] Copiar para o pen drive físico; o instalador confere o SHA-256 de todos os
+  arquivos automaticamente.
 - [ ] Levar segunda cópia confiável do pacote e destino para backup externo.
 
 ## No computador da padaria
@@ -17,11 +18,8 @@
 - [ ] Instalar 1.2.1, criar administrador no primeiro uso e guardar o código de
   recuperação fora do computador.
 - [ ] Criar usuário operador e testar bloqueios administrativos.
-- [ ] Testar venda, peso, dinheiro/troco, PIX manual, segunda via, cancelamento,
-  entrada/retirada, saldo, fechamento sem logout, backup e reinício.
-- [ ] Fechar e reabrir o aplicativo 20 vezes na máquina real; confirmar no
-  Gerenciador de Tarefas que o processo encerra e que duplo clique não abre duas
-  instâncias.
+- [ ] Fazer o teste físico mínimo descrito em `docs/QA_WINDOWS.md`: leitor,
+  papel, corte, PIX, maquininha, backup externo e um ciclo de encerramento.
 - [ ] Como administrador, usar uma única vez `Caixa e manutenção` →
   `Limpar testes e iniciar produção` e guardar o backup criado.
 - [ ] Depois da limpeza, revisar preços, realizar inventário real e só então

@@ -53,6 +53,11 @@ class ReleaseVersionTestCase(unittest.TestCase):
         self.assertIn("ProductVersion", installer)
         self.assertIn(RELEASE.version, installer)
         self.assertIn("..\\TrigoPDV-Setup.exe", installer)
+        self.assertIn("Verificar_Pacote.ps1", installer)
+        self.assertLess(
+            installer.index("Verificar_Pacote.ps1"),
+            installer.index("ProductVersion"),
+        )
         self.assertNotIn("robocopy", installer.casefold())
 
     def test_usb_wrapper_migrates_legacy_program_without_touching_operational_data(self) -> None:

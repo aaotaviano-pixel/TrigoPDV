@@ -6,6 +6,7 @@ setlocal EnableExtensions
 
 set "SETUP=%~dp0..\TrigoPDV-Setup.exe"
 set "MIGRATION=%~dp0Migrar_Instalacao_Legada.ps1"
+set "VERIFIER=%~dp0Verificar_Pacote.ps1"
 set "TRIGOPDV_PACKAGE_EXE=%SETUP%"
 
 if not exist "%SETUP%" (
@@ -17,6 +18,21 @@ if not exist "%SETUP%" (
 
 if not exist "%MIGRATION%" (
     echo ERRO: nao encontrei o assistente de migracao do instalador.
+    pause
+    exit /b 1
+)
+
+if not exist "%VERIFIER%" (
+    echo ERRO: nao encontrei o verificador de integridade do pacote.
+    pause
+    exit /b 1
+)
+
+echo Conferindo automaticamente todos os arquivos do pacote...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%VERIFIER%" -PackageRoot "%~dp0.."
+if errorlevel 1 (
+    echo ERRO: o pacote esta incompleto, alterado ou corrompido.
+    echo Use uma copia nova do pen drive confiavel e tente novamente.
     pause
     exit /b 1
 )

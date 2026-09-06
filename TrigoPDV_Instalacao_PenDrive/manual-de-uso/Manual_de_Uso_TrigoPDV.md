@@ -1,7 +1,7 @@
 # Manual de uso — TrigoPDV 1.2.1
 
 **Padaria Trigo de Minas**
-**Revisado em 05/09/2026**
+**Revisado em 06/09/2026**
 
 Este manual foi feito para o único caixa da padaria. O sistema vende produtos
 já cadastrados mesmo sem internet. Use o usuário de cada pessoa; não compartilhe
@@ -11,7 +11,8 @@ senhas.
 
 1. No Windows 10 ou 11, instale primeiro o leitor e a impressora térmica.
 2. Copie a pasta completa do pen drive para o computador.
-3. Execute `instalador\Instalar_TrigoPDV.cmd` e aguarde o atalho **TrigoPDV**.
+3. Execute `instalador\Instalar_TrigoPDV.cmd`. Ele confere automaticamente
+   todos os arquivos antes de abrir o Setup. Aguarde o atalho **TrigoPDV**.
 4. Na primeira abertura, crie a conta administrativa e guarde o código de
    recuperação fora do computador e longe do caixa.
 5. Crie uma conta individual para cada operador em **Administração → Usuários**.
@@ -22,16 +23,17 @@ em `%LOCALAPPDATA%\TrigoPDV`. Nunca apague essa pasta para corrigir um erro.
 
 ## 2. Preparar antes da primeira venda real — responsável
 
-Faça os testes antes do inventário definitivo:
+Os cálculos, permissões, banco, backup, atualização e limpeza de treinamento já
+passam por testes automáticos. Na máquina da padaria, faça somente os testes que
+dependem dos equipamentos e serviços reais:
 
 - selecione a impressora em **Administração → Impressora** e imprima um teste;
-- leia um produto comum e um produto por peso;
-- abra um caixa de treinamento, faça uma venda curta em dinheiro e confira o
-  troco e o comprovante;
-- faça uma entrada e uma retirada pequenas;
-- teste PIX e cartão, lembrando que a confirmação é feita pelo operador;
-- cancele a venda de teste com um administrador e feche o caixa;
-- feche e abra o aplicativo para confirmar que não ficou nenhum processo preso.
+- leia um produto comum com o leitor USB e inclua um item por peso;
+- faça uma venda curta em dinheiro e confira troco, papel, acentos e corte;
+- simule falta de papel e use **Segunda via**, sem repetir a venda;
+- confirme um PIX no banco e um cartão na maquininha de treinamento;
+- gere um backup em outro disco ou pen drive;
+- feche e abra o aplicativo uma vez e confirme que o processo encerrou.
 
 Depois dos testes, entre como administrador e abra **Administração → Caixa e
 manutenção**. Clique uma única vez em **Limpar testes e iniciar produção**,

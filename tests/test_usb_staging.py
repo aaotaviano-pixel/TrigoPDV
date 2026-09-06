@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
 
 from tools.stage_usb_installer import UsbStageError, stage_usb_package, verify_usb_package
+
+
+ROOT = Path(__file__).resolve().parent.parent
+POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
 
 
 class UsbInstallerStagingTestCase(unittest.TestCase):
@@ -21,6 +27,7 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
             "dados-iniciais/catalogo-produtos.manifest.json": "{}",
             "instalador/Instalar_TrigoPDV.cmd": "@echo off",
             "instalador/Migrar_Instalacao_Legada.ps1": "param()",
+            "instalador/Verificar_Pacote.ps1": "param()",
             "manual-de-uso/CHECKLIST_INSTALACAO_AMANHA.md": "checklist",
             "manual-de-uso/CHECKLIST_OPERACAO_DIARIA.md": "rotina",
             "manual-de-uso/LEIA-ME.txt": "manual",
@@ -47,6 +54,7 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
 
             self.assertEqual(result.manifest.name, "MANIFESTO-SHA256.txt")
             self.assertTrue((result.root / "TrigoPDV-Setup.exe").is_file())
+            self.assertTrue((result.root / "instalador/Verificar_Pacote.ps1").is_file())
             self.assertTrue(verify_usb_package(result.root))
             lines = result.manifest.read_text(encoding="utf-8").splitlines()
             paths = [line.split(" *", 1)[1] for line in lines]
@@ -88,6 +96,48 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
             manual.write_text("não é um DOCX", encoding="utf-8")
             with self.assertRaisesRegex(UsbStageError, "DOCX.*inválido"):
                 stage_usb_package(source, setup, root / "invalid-manual")
+
+    @unittest.skipUnless(POWERSHELL, "PowerShell não está disponível")
+    def test_powershell_verifier_accepts_intact_package_and_rejects_tampering(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            source = self._complete_source(root)
+            setup = root / "TrigoPDV-Setup.exe"
+            setup.write_bytes(b"velopack setup")
+            staged = stage_usb_package(source, setup, root / "staged").root
+            verifier = (
+                ROOT
+                / "TrigoPDV_Instalacao_PenDrive"
+                / "instalador"
+                / "Verificar_Pacote.ps1"
+            )
+
+            intact = subprocess.run(
+                [
+                    str(POWERSHELL), "-NoProfile", "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass", "-File", str(verifier),
+                    "-PackageRoot", str(staged),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(intact.returncode, 0, intact.stderr)
+            self.assertIn("integro", intact.stdout)
+
+            (staged / "VERSAO.txt").write_text("arquivo alterado", encoding="utf-8")
+            tampered = subprocess.run(
+                [
+                    str(POWERSHELL), "-NoProfile", "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass", "-File", str(verifier),
+                    "-PackageRoot", str(staged),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(tampered.returncode, 0)
+            self.assertIn("alterado ou corrompido", tampered.stderr)
 
 
 if __name__ == "__main__":

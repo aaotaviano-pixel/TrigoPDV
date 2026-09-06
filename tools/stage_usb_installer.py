@@ -35,6 +35,7 @@ REQUIRED_SOURCE_FILES = (
     ALLOWED_SQLITE,
     "instalador/Instalar_TrigoPDV.cmd",
     "instalador/Migrar_Instalacao_Legada.ps1",
+    "instalador/Verificar_Pacote.ps1",
     "manual-de-uso/CHECKLIST_INSTALACAO_AMANHA.md",
     "manual-de-uso/CHECKLIST_OPERACAO_DIARIA.md",
     "manual-de-uso/LEIA-ME.txt",
