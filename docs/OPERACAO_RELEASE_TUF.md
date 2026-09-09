@@ -2,7 +2,7 @@
 
 ## Estado da arquitetura
 
-- Bootstrap: TrigoPDV 1.2.0, sequência 3, schema 9.
+- Bootstrap: TrigoPDV 1.2.1, sequência 4, schema 9.
 - Canal inicial: `pilot`, destinado ao único caixa da padaria.
 - Repositório: GitHub Pages em
   `https://aaotaviano-pixel.github.io/TrigoPDV/updates/`.
@@ -13,7 +13,7 @@
   raiz Inno/CMD 1.1 e da raiz de dados `%LOCALAPPDATA%\TrigoPDV`.
 - Política offline-first: falha de internet nunca bloqueia login ou venda.
 
-O primeiro 1.2.0 precisa ser instalado pelo pacote confiável do pen drive. Uma
+O primeiro 1.2.1 precisa ser instalado pelo pacote confiável do pen drive. Uma
 versão anterior não conhece a raiz TUF pública e, por construção, não pode
 aceitar uma atualização online.
 

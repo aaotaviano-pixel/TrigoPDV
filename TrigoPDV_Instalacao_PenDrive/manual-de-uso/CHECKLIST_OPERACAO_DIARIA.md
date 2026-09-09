@@ -15,6 +15,8 @@
 4. Escolha a forma de pagamento e confirme o valor recebido/troco.
 5. Se a impressão falhar, a venda permanece registrada. Corrija a impressora e
    use Segunda via; não repita a venda.
+6. PIX e cartão são confirmados pelo operador. Confira a maquininha ou o banco
+   antes de concluir; o TrigoPDV não confirma nem estorna esses pagamentos.
 
 Produto desconhecido pode ser consultado por GTIN. Quando a consulta preencher
 nome e marca, o operador informa o preço antes de cadastrar. Sem internet, use
@@ -29,11 +31,22 @@ o cadastro manual autorizado.
 - fechar o caixa não desconecta o usuário;
 - ao terminar o turno, use Sair para encerrar sua conta.
 
+## Antes da primeira venda real
+
+- o administrador usa uma única vez `Caixa e manutenção` →
+  `Limpar testes e iniciar produção`;
+- o sistema cria um backup e limpa vendas, caixas e movimentações de teste;
+- em seguida, o responsável revisa preços, faz o inventário real e ativa o
+  controle de estoque quando necessário;
+- essa limpeza não aparece novamente depois de concluída, protegendo as vendas.
+
 ## Senha e problemas
 
 - após cinco tentativas erradas de administrador, aparece a recuperação;
 - use o código guardado pelo administrador; o código é trocado após uso;
 - não anote senha no computador ou no pen drive;
-- se o programa avisar que já está aberto, procure a janela existente;
+- se o programa avisar que já está aberto, procure a janela existente e aguarde
+  alguns segundos; se não houver janela, encerre apenas `TrigoPDV.exe` pelo
+  Gerenciador de Tarefas e abra novamente;
 - nunca apague `%LOCALAPPDATA%\TrigoPDV` para resolver um erro;
 - anote horário, tela, mensagem e o que estava fazendo ao pedir suporte.

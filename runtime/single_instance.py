@@ -1,16 +1,18 @@
 """Exclusão entre processos vinculada ao caminho canônico do banco.
 
-No Windows, o lock é o *handle* exclusivo mantido pelo kernel, não o conteúdo
-nem a existência do arquivo. Assim, um encerramento abrupto libera a instância
-automaticamente e um arquivo antigo pode permanecer com segurança.
+No Windows, o lock é um *handle* exclusivo; em sistemas POSIX, é um ``flock``.
+Nos dois casos o kernel mantém a exclusividade, não o conteúdo nem a existência
+do arquivo. Assim, um encerramento abrupto libera a instância automaticamente e
+um arquivo antigo pode permanecer com segurança.
 """
 
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
+import errno
 import hashlib
 import os
+from ctypes import wintypes
 from pathlib import Path
 import threading
 from typing import Self
@@ -100,11 +102,13 @@ class SingleInstanceGuard:
         self._state_lock = threading.RLock()
 
     def acquire(self) -> Self:
-        """Adquire o handle exclusivo; chamadas repetidas no mesmo guard são neutras."""
+        """Adquire o lock exclusivo; chamadas repetidas no mesmo guard são neutras."""
 
         with self._state_lock:
             if self._handle is not None:
                 return self
+            if os.name != "nt":
+                return self._acquire_posix()
             try:
                 self.lock_path.parent.mkdir(parents=True, exist_ok=True)
                 kernel32 = _win32_api()
@@ -140,12 +144,48 @@ class SingleInstanceGuard:
             self._handle = handle
             return self
 
+    def _acquire_posix(self) -> Self:
+        """Mantém um descriptor com ``flock`` em Linux e outros sistemas POSIX."""
+
+        try:
+            import fcntl
+
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                os.set_inheritable(descriptor, False)
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BaseException:
+                os.close(descriptor)
+                raise
+        except BlockingIOError as exc:
+            raise SingleInstanceError(_ALREADY_RUNNING_MESSAGE) from exc
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN}:
+                raise SingleInstanceError(_ALREADY_RUNNING_MESSAGE) from exc
+            raise SingleInstanceError(_SAFE_FAILURE_MESSAGE) from exc
+        except ImportError as exc:
+            raise SingleInstanceError(_SAFE_FAILURE_MESSAGE) from exc
+
+        self._handle = descriptor
+        return self
+
     def release(self) -> None:
         """Fecha o handle uma única vez e preserva o arquivo de lock."""
 
         with self._state_lock:
             handle = self._handle
             if handle is None:
+                return
+            if os.name != "nt":
+                try:
+                    import fcntl
+
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+                    os.close(handle)
+                except (ImportError, OSError) as exc:
+                    raise SingleInstanceError(_SAFE_FAILURE_MESSAGE) from exc
+                self._handle = None
                 return
             try:
                 kernel32 = _win32_api()

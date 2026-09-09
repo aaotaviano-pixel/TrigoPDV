@@ -6,6 +6,7 @@ setlocal EnableExtensions
 
 set "SETUP=%~dp0..\TrigoPDV-Setup.exe"
 set "MIGRATION=%~dp0Migrar_Instalacao_Legada.ps1"
+set "VERIFIER=%~dp0Verificar_Pacote.ps1"
 set "TRIGOPDV_PACKAGE_EXE=%SETUP%"
 
 if not exist "%SETUP%" (
@@ -21,9 +22,24 @@ if not exist "%MIGRATION%" (
     exit /b 1
 )
 
-powershell -NoProfile -NonInteractive -Command "$v=(Get-Item -LiteralPath $env:TRIGOPDV_PACKAGE_EXE).VersionInfo.ProductVersion; if (-not $v -or -not $v.StartsWith('1.2.0')) { exit 1 }"
+if not exist "%VERIFIER%" (
+    echo ERRO: nao encontrei o verificador de integridade do pacote.
+    pause
+    exit /b 1
+)
+
+echo Conferindo automaticamente todos os arquivos do pacote...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%VERIFIER%" -PackageRoot "%~dp0.."
 if errorlevel 1 (
-    echo ERRO: o instalador deste pacote ainda nao e a versao 1.2.0 validada.
+    echo ERRO: o pacote esta incompleto, alterado ou corrompido.
+    echo Use uma copia nova do pen drive confiavel e tente novamente.
+    pause
+    exit /b 1
+)
+
+powershell -NoProfile -NonInteractive -Command "$v=(Get-Item -LiteralPath $env:TRIGOPDV_PACKAGE_EXE).VersionInfo.ProductVersion; if (-not $v -or -not $v.StartsWith('1.2.1')) { exit 1 }"
+if errorlevel 1 (
+    echo ERRO: o instalador deste pacote ainda nao e a versao 1.2.1 validada.
     echo Nao instale uma versao antiga. Atualize o pacote e tente novamente.
     pause
     exit /b 1

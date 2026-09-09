@@ -29,6 +29,7 @@ from .dialogs import (
     ManualProductDialog,
     PaymentDialog,
     PricingDialog,
+    ProductionPreparationDialog,
     ProductEditorDialog,
     PasswordRecoveryDialog,
     RecoveryCodeSetupDialog,
@@ -1561,15 +1562,44 @@ class AdminView(tk.Frame):
         RecoveryCodeSetupDialog(self, recovery_code, save)
 
     def _build_cash(self) -> None:
-        tab = self.cash_tab
+        outer = self.cash_tab
+        self.cash_scroll_canvas = tk.Canvas(
+            outer, bg=Colors.CREAM, highlightthickness=0, bd=0
+        )
+        cash_scrollbar = ttk.Scrollbar(
+            outer, orient="vertical", command=self.cash_scroll_canvas.yview
+        )
+        self.cash_scroll_canvas.configure(yscrollcommand=cash_scrollbar.set)
+        self.cash_scroll_canvas.pack(side="left", fill="both", expand=True)
+        cash_scrollbar.pack(side="right", fill="y")
+        tab = tk.Frame(self.cash_scroll_canvas, bg=Colors.CREAM)
+        cash_window = self.cash_scroll_canvas.create_window(
+            (0, 0), window=tab, anchor="nw"
+        )
+        tab.bind(
+            "<Configure>",
+            lambda _event: self.cash_scroll_canvas.configure(
+                scrollregion=self.cash_scroll_canvas.bbox("all")
+            ),
+            add="+",
+        )
+        self.cash_scroll_canvas.bind(
+            "<Configure>",
+            lambda event: self.cash_scroll_canvas.itemconfigure(
+                cash_window, width=event.width
+            ),
+            add="+",
+        )
         top = tk.Frame(tab, bg=Colors.CREAM)
         top.pack(fill="x", pady=(0, 12))
         tk.Label(top, text="Fechamentos recentes", bg=Colors.CREAM, fg=Colors.INK, font=font(14, "bold")).pack(side="left")
         Button(top, "Atualizar", self.load_cash_closures, variant="ghost").pack(side="right")
         table_wrap = tk.Frame(tab, bg=Colors.SURFACE, highlightbackground=Colors.LINE, highlightthickness=1, height=235)
-        table_wrap.pack(fill="both", expand=True)
+        table_wrap.pack(fill="x")
         columns = ("id", "operador", "abertura", "fechamento", "informado", "quebra", "status")
-        self.closure_table = ttk.Treeview(table_wrap, columns=columns, show="headings")
+        self.closure_table = ttk.Treeview(
+            table_wrap, columns=columns, show="headings", height=6
+        )
         spec = {
             "id": ("#", 50), "operador": ("Operador", 155), "abertura": ("Abertura", 135),
             "fechamento": ("Fechamento", 135), "informado": ("Informado", 105), "quebra": ("Quebra", 100), "status": ("Status", 90),
@@ -1592,6 +1622,41 @@ class AdminView(tk.Frame):
         actions.pack(fill="x")
         Button(actions, "Compactar banco", lambda: self.confirm_maintenance("VACUUM"), variant="ghost").pack(side="left", padx=(0, 8))
         Button(actions, "Reorganizar índices", lambda: self.confirm_maintenance("REINDEX"), variant="ghost").pack(side="left")
+        tk.Label(
+            maintenance,
+            text="Antes da abertura oficial",
+            bg=Colors.SURFACE,
+            fg=Colors.INK,
+            font=font(10, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(15, 3))
+        tk.Label(
+            maintenance,
+            text="Após testar o caixa, use uma vez para criar backup e remover os testes. Depois faça o inventário real.",
+            bg=Colors.SURFACE,
+            fg=Colors.INK_MUTED,
+            font=font(9),
+            justify="left",
+            anchor="w",
+            wraplength=760,
+        ).pack(fill="x", pady=(0, 8))
+        self.production_status_var = tk.StringVar(value="Disponível somente antes da primeira venda real.")
+        tk.Label(
+            maintenance,
+            textvariable=self.production_status_var,
+            bg=Colors.SURFACE,
+            fg=Colors.WARNING,
+            font=font(9, "bold"),
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+        self._production_button = Button(
+            maintenance,
+            "Limpar testes e iniciar produção",
+            self.confirm_production_preparation,
+            variant="danger",
+        )
+        self._production_button.pack(anchor="w")
+        self.after_idle(self.refresh_production_preparation_status)
 
     def _build_reports(self) -> None:
         tab = self.reports_tab
@@ -2287,3 +2352,49 @@ class AdminView(tk.Frame):
             return response or True
 
         ConfirmDialog(self, f"Confirmar: {title}", message, execute, dangerous=True)
+
+    def confirm_production_preparation(self) -> None:
+        if not self.checkout_idle():
+            self.show_notice(
+                "Finalize ou descarte a venda em andamento antes de limpar os testes.",
+                "warning",
+            )
+            return
+
+        def execute(confirmation: str) -> Any:
+            response = invoke(
+                self.controller,
+                "prepare_for_production",
+                confirmation,
+                int(field(self.user, "id", 0)),
+            )
+            self.closure_table.delete(*self.closure_table.get_children())
+            self.audit_table.delete(*self.audit_table.get_children())
+            self._production_button.configure(
+                state="disabled", text="Produção já iniciada"
+            )
+            self.production_status_var.set(
+                "Produção iniciada. A limpeza de treinamento está bloqueada."
+            )
+            self.refresh_dashboard()
+            self.show_notice(
+                "Testes removidos com backup verificado. Agora revise preços, faça o inventário real e teste a impressora.",
+                "success",
+            )
+            return response or True
+
+        ProductionPreparationDialog(self, execute)
+
+    def refresh_production_preparation_status(self) -> None:
+        try:
+            status = invoke(self.controller, "production_preparation_status") or {}
+        except Exception as exc:
+            self.show_notice(str(exc), "danger")
+            return
+        if bool(field(status, "prepared", False)):
+            self._production_button.configure(
+                state="disabled", text="Produção já iniciada"
+            )
+            self.production_status_var.set(
+                "Produção iniciada. A limpeza de treinamento está bloqueada."
+            )

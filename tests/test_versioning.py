@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class ReleaseVersionTestCase(unittest.TestCase):
     def test_runtime_release_matches_database_schema(self) -> None:
-        self.assertEqual(RELEASE.version, "1.2.0")
-        self.assertEqual(RELEASE.sequence, 3)
+        self.assertEqual(RELEASE.version, "1.2.1")
+        self.assertEqual(RELEASE.sequence, 4)
         self.assertEqual(RELEASE.schema_target, SCHEMA_VERSION)
         self.assertEqual(RELEASE.pack_id, "TrigoDeMinas.TrigoPDV.V2")
         self.assertNotEqual(RELEASE.pack_id, "TrigoDeMinas.TrigoPDV")
@@ -51,8 +51,13 @@ class ReleaseVersionTestCase(unittest.TestCase):
         self.assertNotIn("pip install --upgrade pip", build)
         installer = (ROOT / "TrigoPDV_Instalacao_PenDrive" / "instalador" / "Instalar_TrigoPDV.cmd").read_text(encoding="utf-8")
         self.assertIn("ProductVersion", installer)
-        self.assertIn("1.2.0", installer)
+        self.assertIn(RELEASE.version, installer)
         self.assertIn("..\\TrigoPDV-Setup.exe", installer)
+        self.assertIn("Verificar_Pacote.ps1", installer)
+        self.assertLess(
+            installer.index("Verificar_Pacote.ps1"),
+            installer.index("ProductVersion"),
+        )
         self.assertNotIn("robocopy", installer.casefold())
 
     def test_usb_wrapper_migrates_legacy_program_without_touching_operational_data(self) -> None:
@@ -71,6 +76,7 @@ class ReleaseVersionTestCase(unittest.TestCase):
         self.assertIn("current", migration)
         self.assertNotIn("Remove-Item $dataRoot", migration)
 
+    @unittest.skipUnless(os.name == "nt", "a migração CMD exige o Windows")
     def test_legacy_cmd_migration_is_rehearsed_in_an_isolated_windows_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

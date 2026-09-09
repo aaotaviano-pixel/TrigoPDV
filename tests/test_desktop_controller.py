@@ -103,6 +103,13 @@ class DesktopControllerTestCase(unittest.TestCase):
         )
         self.assertIsNotNone(self.controller.authenticate(TEST_ADMIN_LOGIN, "NovaSenhaSegura9"))
 
+    def test_controller_exposes_safe_production_preparation(self) -> None:
+        result = self.controller.prepare_for_production(
+            "INICIAR PRODUCAO", self.admin["id"]
+        )
+        self.assertEqual(result["integrity"], "ok")
+        self.assertTrue(Path(result["backup_path"]).is_file())
+
     def test_quote_and_typed_manual_authorization_never_persist_credentials(self) -> None:
         cashier = self.controller.create_user_admin(
             "Operadora Checkout", "checkout-caixa", "SenhaInicial8", "caixa", self.admin["id"]

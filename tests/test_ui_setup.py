@@ -211,7 +211,9 @@ class FirstUseSetupUITestCase(unittest.TestCase):
     def test_backend_error_stays_scrollable_and_fields_can_be_corrected(self) -> None:
         view = self._setup()
         self.app.minsize(720, 520)
-        self.app.geometry("720x520+0+0")
+        # Mantém o cenário realmente menor que o formulário também no Tk 9,
+        # cuja métrica de fonte é mais compacta que a do Tk 8.6 do Windows.
+        self.app.geometry("720x480+0+0")
         self.app.update()
         code = self._advance_to_code(view)
         view.recovery_confirmation_var.set(code)
@@ -282,7 +284,7 @@ class FirstUseSetupUITestCase(unittest.TestCase):
         self.assertIsNone(self.app.current_user)
         self.assertIsNone(self.app.sale_view)
 
-    def test_small_geometry_exposes_scrollbar_wheel_keyboard_and_tab_controls(self) -> None:
+    def test_small_geometry_keeps_scrollbar_wheel_keyboard_and_tab_controls(self) -> None:
         view = self._setup()
         self.app.geometry("720x520+0+0")
         self.app.update()
@@ -292,7 +294,14 @@ class FirstUseSetupUITestCase(unittest.TestCase):
         self.assertTrue(view.bind("<Down>"))
         bounds = view.scroll_canvas.bbox("all")
         self.assertIsNotNone(bounds)
-        self.assertGreater(bounds[3] - bounds[1], view.scroll_canvas.winfo_height())
+        # No Tk 9 o formulário pode caber por poucos pixels, enquanto no Tk
+        # 8.6 do Windows ele transborda. A regressão relevante é perder o
+        # scrollregion/bindings, não obrigar conteúdo que já cabe a rolar.
+        self.assertGreater(bounds[3] - bounds[1], 0)
+        self.assertEqual(
+            tuple(map(int, view.scroll_canvas.cget("scrollregion").split())),
+            tuple(map(int, bounds)),
+        )
         for control in (
             view.name_entry,
             view.login_entry,
