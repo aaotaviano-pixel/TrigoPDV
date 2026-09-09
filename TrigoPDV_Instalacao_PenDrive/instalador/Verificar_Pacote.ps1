@@ -13,6 +13,19 @@ function Get-RelativePackagePath {
     return $FullName.Substring($Root.Length).TrimStart('\', '/') -replace '\\', '/'
 }
 
+function Get-Sha256 {
+    param([string]$Path)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return ([System.BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
 try {
     $root = (Resolve-Path -LiteralPath $PackageRoot).Path.TrimEnd('\', '/')
     $rootPrefix = $root + [IO.Path]::DirectorySeparatorChar
@@ -57,7 +70,7 @@ try {
         if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
             throw "O pacote esta incompleto: $relative"
         }
-        $actualHash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualHash = Get-Sha256 -Path $candidate
         if ($actualHash -ne $Matches.hash) {
             throw "Um arquivo do pacote foi alterado ou corrompido: $relative"
         }

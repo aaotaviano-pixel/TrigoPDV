@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,26 @@ POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
 
 
 class UsbInstallerStagingTestCase(unittest.TestCase):
+    @staticmethod
+    def _run_verifier(verifier: Path, package_root: Path) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["TRIGOPDV_VERIFIER_PATH"] = str(verifier)
+        environment["TRIGOPDV_PACKAGE_ROOT"] = str(package_root)
+        command = (
+            "function global:Get-FileHash { throw 'Get-FileHash indisponivel' }; "
+            "& $env:TRIGOPDV_VERIFIER_PATH -PackageRoot $env:TRIGOPDV_PACKAGE_ROOT"
+        )
+        return subprocess.run(
+            [
+                str(POWERSHELL), "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass", "-Command", command,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+        )
+
     @staticmethod
     def _complete_source(root: Path) -> Path:
         source = root / "source"
@@ -112,30 +133,12 @@ class UsbInstallerStagingTestCase(unittest.TestCase):
                 / "Verificar_Pacote.ps1"
             )
 
-            intact = subprocess.run(
-                [
-                    str(POWERSHELL), "-NoProfile", "-NonInteractive",
-                    "-ExecutionPolicy", "Bypass", "-File", str(verifier),
-                    "-PackageRoot", str(staged),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            intact = self._run_verifier(verifier, staged)
             self.assertEqual(intact.returncode, 0, intact.stderr)
             self.assertIn("integro", intact.stdout)
 
             (staged / "VERSAO.txt").write_text("arquivo alterado", encoding="utf-8")
-            tampered = subprocess.run(
-                [
-                    str(POWERSHELL), "-NoProfile", "-NonInteractive",
-                    "-ExecutionPolicy", "Bypass", "-File", str(verifier),
-                    "-PackageRoot", str(staged),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            tampered = self._run_verifier(verifier, staged)
             self.assertNotEqual(tampered.returncode, 0)
             self.assertIn("alterado ou corrompido", tampered.stderr)
 

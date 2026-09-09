@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from db.database import Database
@@ -73,7 +74,7 @@ class ProductionPreparationServiceTestCase(unittest.TestCase):
         self.assertTrue(self.service.status(actor_id=self.admin["id"])["prepared"])
         backup_path = Path(result["backup_path"])
         self.assertTrue(backup_path.is_file())
-        with sqlite3.connect(backup_path) as backup:
+        with closing(sqlite3.connect(backup_path)) as backup:
             self.assertEqual(backup.execute("SELECT COUNT(*) FROM vendas").fetchone()[0], 1)
 
         with self.database.transaction() as connection:
