@@ -4,5 +4,5 @@ qrcode[pil]==8.2
 Pillow==12.3.0
 python-escpos==3.1
 pywin32==312; platform_system == "Windows"
-tuf==7.0.0
+tuf==7.0.1
 velopack==1.2.0; platform_system == "Windows"
